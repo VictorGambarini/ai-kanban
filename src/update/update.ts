@@ -2,6 +2,12 @@ import { spawn, spawnSync } from "node:child_process";
 import { realpathSync } from "node:fs";
 import { resolve } from "node:path";
 
+import packageJson from "../../package.json" with { type: "json" };
+
+// Default npm package name for self-update. Read from package.json so a fork
+// published under a different name updates itself, not the upstream package.
+const DEFAULT_PACKAGE_NAME = typeof packageJson.name === "string" ? packageJson.name : "kanban";
+
 export enum UpdatePackageManager {
 	NPM = "npm",
 	PNPM = "pnpm",
@@ -619,7 +625,7 @@ export async function runOnDemandUpdate(options: OnDemandUpdateOptions): Promise
 		};
 	}
 
-	const packageName = options.packageName ?? "kanban";
+	const packageName = options.packageName ?? DEFAULT_PACKAGE_NAME;
 	const installation = detectAutoUpdateInstallation({
 		currentVersion: options.currentVersion,
 		packageName,
@@ -725,7 +731,7 @@ export async function runAutoUpdateCheck(options: UpdateStartupOptions): Promise
 		return;
 	}
 
-	const packageName = options.packageName ?? "kanban";
+	const packageName = options.packageName ?? DEFAULT_PACKAGE_NAME;
 	const installation = detectAutoUpdateInstallation({
 		currentVersion: options.currentVersion,
 		packageName,

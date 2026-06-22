@@ -52,6 +52,10 @@ interface CliOptions {
 }
 
 const KANBAN_VERSION = typeof packageJson.version === "string" ? packageJson.version : "0.1.0";
+// The npm package name this build was published under. Used so the
+// auto-updater checks/installs THIS package (the fork) rather than a
+// hard-coded upstream name.
+const KANBAN_PACKAGE_NAME = typeof packageJson.name === "string" ? packageJson.name : "kanban";
 
 function parseCliPortValue(rawValue: string): { mode: "fixed"; value: number } | { mode: "auto" } {
 	const normalized = rawValue.trim().toLowerCase();
@@ -499,6 +503,7 @@ async function startServer(): Promise<{
 		runUpdateNow: async () => {
 			const result = await runOnDemandUpdate({
 				currentVersion: KANBAN_VERSION,
+				packageName: KANBAN_PACKAGE_NAME,
 			});
 			if (
 				result.status === "updated" ||
@@ -611,6 +616,7 @@ async function runMainCommand(options: CliOptions, shouldAutoOpenBrowser: boolea
 
 	autoUpdateOnStartup({
 		currentVersion: KANBAN_VERSION,
+		packageName: KANBAN_PACKAGE_NAME,
 	});
 
 	let runtime: Awaited<ReturnType<typeof startServer>>;
@@ -698,6 +704,7 @@ async function runMainCommand(options: CliOptions, shouldAutoOpenBrowser: boolea
 async function runUpdateCommand(): Promise<void> {
 	const result = await runOnDemandUpdate({
 		currentVersion: KANBAN_VERSION,
+		packageName: KANBAN_PACKAGE_NAME,
 	});
 
 	if (result.status === "updated" || result.status === "already_up_to_date" || result.status === "cache_refreshed") {
@@ -712,7 +719,7 @@ function createProgram(invocationArgs: string[]): Command {
 	const shouldAutoOpenBrowser = shouldAutoOpenBrowserTabForInvocation(invocationArgs);
 	const program = new Command();
 	program
-		.name("kanban")
+		.name("ai-kanban")
 		.description("Local orchestration board for coding agents.")
 		.version(KANBAN_VERSION, "-v, --version", "Output the version number")
 		.option("--host <ip>", "Host IP to bind the server to (default: 127.0.0.1).")
