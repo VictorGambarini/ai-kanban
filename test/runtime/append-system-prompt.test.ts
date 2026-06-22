@@ -1,30 +1,35 @@
 import { describe, expect, it } from "vitest";
 
+import packageJson from "../../package.json" with { type: "json" };
 import {
 	renderAppendSystemPrompt,
 	resolveAppendSystemPromptCommandPrefix,
 	resolveHomeAgentAppendSystemPrompt,
 } from "../../src/prompts/append-system-prompt";
 
+// Derived from package.json so the npx/dlx command prefix tracks the published
+// package name (e.g. this fork's scoped name) instead of hard-coding it.
+const PACKAGE_NAME = packageJson.name;
+
 describe("resolveAppendSystemPromptCommandPrefix", () => {
 	it("returns npx prefix for npx transient installs", () => {
 		const prefix = resolveAppendSystemPromptCommandPrefix({
 			currentVersion: "0.1.10",
 			cwd: "/Users/example/repo",
-			argv: ["node", "/Users/example/.npm/_npx/593b71878a7c70f2/node_modules/kanban/dist/cli.js"],
+			argv: ["node", `/Users/example/.npm/_npx/593b71878a7c70f2/node_modules/${PACKAGE_NAME}/dist/cli.js`],
 			resolveRealPath: (path) => path,
 		});
-		expect(prefix).toBe("npx -y kanban");
+		expect(prefix).toBe(`npx -y ${PACKAGE_NAME}`);
 	});
 
 	it("returns bun x prefix for bun x transient installs", () => {
 		const prefix = resolveAppendSystemPromptCommandPrefix({
 			currentVersion: "0.1.10",
 			cwd: "/Users/example/repo",
-			argv: ["node", "/private/tmp/bunx-501-kanban@1.0.0/node_modules/kanban/dist/cli.js"],
+			argv: ["node", `/private/tmp/bunx-501-kanban@1.0.0/node_modules/${PACKAGE_NAME}/dist/cli.js`],
 			resolveRealPath: (path) => path,
 		});
-		expect(prefix).toBe("bun x kanban");
+		expect(prefix).toBe(`bun x ${PACKAGE_NAME}`);
 	});
 
 	it("falls back to the current runnable invocation for local entrypoints", () => {

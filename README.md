@@ -40,13 +40,15 @@ A replacement for your IDE better suited for running many agents in parallel and
 ### 1. Open kanban
 ```bash
 # Run directly (no install required)
-npx kanban
+npx @victorgambarini/ai-kanban
 
-# Or install globally
-npm i -g kanban
-kanban
+# Or install globally — the command is `ai-kanban`
+npm i -g @victorgambarini/ai-kanban
+ai-kanban
 ```
 Run this from the root of any git repo. Kanban will detect your installed CLI agent and launch a local running webserver in your browser. No account or setup required, it works right out of the box.
+
+> This fork is published as [`@victorgambarini/ai-kanban`](https://www.npmjs.com/package/@victorgambarini/ai-kanban). The original is `npx kanban` from [cline/kanban](https://github.com/cline/kanban).
 
 ### 2. Create tasks
 Create a task card manually, or open the sidebar chat and ask your agent to break work down into tasks for you. Kanban injects board-management instructions into that session so you can simply ask it to add tasks, link tasks, or start work on your board.

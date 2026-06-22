@@ -1,30 +1,32 @@
 {
-  "name": "kanban",
+  "name": "@victorgambarini/ai-kanban",
   "version": "0.1.68",
-  "description": "A kanban foundation for coding agents",
+  "description": "Community fork of Cline Kanban with remote / self-hosted server support",
   "publishConfig": {
     "access": "public",
-    "provenance": true
+    "provenance": false
   },
   "keywords": [
     "kanban",
     "agents",
     "cli",
     "task-management",
-    "typescript"
+    "typescript",
+    "self-hosted",
+    "remote"
   ],
-  "homepage": "https://github.com/cline/kanban",
+  "homepage": "https://github.com/VictorGambarini/ai-kanban",
   "bugs": {
-    "url": "https://github.com/cline/kanban/issues"
+    "url": "https://github.com/VictorGambarini/ai-kanban/issues"
   },
-  "author": "Cline",
+  "author": "Victor Gambarini",
   "repository": {
     "type": "git",
-    "url": "https://github.com/cline/kanban"
+    "url": "https://github.com/VictorGambarini/ai-kanban"
   },
   "type": "module",
   "bin": {
-    "kanban": "dist/cli.js"
+    "ai-kanban": "dist/cli.js"
   },
   "man": "./man/kanban.1",
   "main": "./dist/index.js",
