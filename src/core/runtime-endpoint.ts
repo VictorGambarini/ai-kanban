@@ -6,6 +6,7 @@ export const DEFAULT_KANBAN_RUNTIME_HOST = "127.0.0.1";
 export const DEFAULT_KANBAN_RUNTIME_PORT = 3484;
 const KANBAN_RUNTIME_HTTPS_ENV = "KANBAN_RUNTIME_HTTPS";
 const KANBAN_RUNTIME_TLS_CA_ENV = "KANBAN_RUNTIME_TLS_CA";
+const KANBAN_ALLOWED_HOSTS_ENV = "KANBAN_ALLOWED_HOSTS";
 
 let runtimeHost: string = process.env.KANBAN_RUNTIME_HOST?.trim() || DEFAULT_KANBAN_RUNTIME_HOST;
 
@@ -39,6 +40,37 @@ export function setKanbanRuntimePort(port: number): void {
 	const normalized = parseRuntimePort(String(port));
 	runtimePort = normalized;
 	process.env.KANBAN_RUNTIME_PORT = String(normalized);
+}
+
+function parseAllowedHostsList(raw: string | undefined): string[] {
+	if (!raw) {
+		return [];
+	}
+	return raw
+		.split(",")
+		.map((entry) => entry.trim())
+		.filter((entry) => entry.length > 0);
+}
+
+/**
+ * Extra Host header / origin hostnames the server should answer to in remote
+ * mode, beyond the bound IP. Lets operators reach a remote instance by a DNS
+ * or reverse-proxy name (e.g. a Tailscale MagicDNS name) instead of only by
+ * its bound address. Env-backed so CLI sub-processes inherit the same list.
+ */
+let extraAllowedHosts: string[] = parseAllowedHostsList(process.env[KANBAN_ALLOWED_HOSTS_ENV]);
+
+export function getExtraAllowedHosts(): readonly string[] {
+	return extraAllowedHosts;
+}
+
+export function setExtraAllowedHosts(hosts: readonly string[]): void {
+	extraAllowedHosts = hosts.map((host) => host.trim()).filter((host) => host.length > 0);
+	if (extraAllowedHosts.length > 0) {
+		process.env[KANBAN_ALLOWED_HOSTS_ENV] = extraAllowedHosts.join(",");
+	} else {
+		delete process.env[KANBAN_ALLOWED_HOSTS_ENV];
+	}
 }
 
 export interface RuntimeTlsConfig {

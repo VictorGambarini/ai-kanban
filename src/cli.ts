@@ -6,6 +6,7 @@ import { resolve } from "node:path";
 import { Command, Option } from "commander";
 import ora, { type Ora } from "ora";
 import packageJson from "../package.json" with { type: "json" };
+import { type PasscodeOption, parseCliPasscodeValue, resolvePasscodeOption } from "./cli-passcode-options";
 import { disposeCliTelemetryService } from "./cline-sdk/cline-telemetry-service.js";
 import { registerHooksCommand } from "./commands/hooks";
 import { registerTaskCommand } from "./commands/task";
@@ -26,11 +27,12 @@ import {
 	getRuntimeFetch,
 	isKanbanRemoteHost,
 	parseRuntimePort,
+	setExtraAllowedHosts,
 	setKanbanRuntimeHost,
 	setKanbanRuntimePort,
 	setKanbanRuntimeTls,
 } from "./core/runtime-endpoint";
-import { disablePasscode, generateInternalToken, generatePasscode } from "./security/passcode-manager";
+import { disablePasscode, generateInternalToken, generatePasscode, setPasscode } from "./security/passcode-manager";
 import { terminateProcessForTimeout } from "./server/process-termination";
 import type { RuntimeStateHub } from "./server/runtime-state-hub";
 import { captureNodeException, flushNodeTelemetry } from "./telemetry/sentry-node.js";
@@ -45,7 +47,8 @@ interface CliOptions {
 	https: boolean;
 	cert: string | null;
 	key: string | null;
-	noPasscode: boolean;
+	passcode: PasscodeOption;
+	allowedHosts: string[];
 }
 
 const KANBAN_VERSION = typeof packageJson.version === "string" ? packageJson.version : "0.1.0";
@@ -65,6 +68,15 @@ function parseCliPortValue(rawValue: string): { mode: "fixed"; value: number } |
 	}
 }
 
+/** Commander reducer for the repeatable `--allowed-host` option. */
+function collectAllowedHost(value: string, previous: string[]): string[] {
+	const trimmed = value.trim();
+	if (!trimmed) {
+		throw new Error("Missing value for --allowed-host. Provide a non-empty hostname.");
+	}
+	return [...previous, trimmed];
+}
+
 interface RootCommandOptions {
 	host?: string;
 	port?: { mode: "fixed"; value: number } | { mode: "auto" };
@@ -74,7 +86,11 @@ interface RootCommandOptions {
 	https?: boolean;
 	cert?: string;
 	key?: string;
-	noPasscode?: boolean;
+	// Commander stores both `--passcode <value>` and `--no-passcode` under the
+	// shared `passcode` destination: a string when pinned, `false` when
+	// negated, and `true`/undefined when neither flag is supplied.
+	passcode?: string | boolean;
+	allowedHost?: string[];
 }
 
 type ShutdownIndicatorResult = "done" | "interrupted" | "failed";
@@ -93,7 +109,15 @@ interface ShutdownIndicator {
  */
 function shouldAutoOpenBrowserTabForInvocation(argv: string[]): boolean {
 	const launchFlags = new Set(["--open", "--no-open", "--skip-shutdown-cleanup", "--https", "--no-passcode"]);
-	const launchOptionsWithValues = new Set(["--host", "--port", "--agent", "--cert", "--key"]);
+	const launchOptionsWithValues = new Set([
+		"--host",
+		"--port",
+		"--agent",
+		"--cert",
+		"--key",
+		"--passcode",
+		"--allowed-host",
+	]);
 
 	for (let index = 0; index < argv.length; index += 1) {
 		const arg = argv[index];
@@ -543,6 +567,11 @@ async function runMainCommand(options: CliOptions, shouldAutoOpenBrowser: boolea
 		console.log(`Binding to host ${options.host}.`);
 	}
 
+	setExtraAllowedHosts(options.allowedHosts);
+	if (options.allowedHosts.length > 0) {
+		console.log(`Accepting extra Host/Origin name(s): ${options.allowedHosts.join(", ")}.`);
+	}
+
 	const [{ openInBrowser }, { autoUpdateOnStartup, runPendingAutoUpdateOnShutdown }] = await Promise.all([
 		import("./server/browser.js"),
 		import("./update/update.js"),
@@ -562,9 +591,16 @@ async function runMainCommand(options: CliOptions, shouldAutoOpenBrowser: boolea
 	// validation so that an invalid --cert/--key fails before a passcode is
 	// printed (a passcode for a server that never starts is confusing).
 	if (isKanbanRemoteHost()) {
-		if (options.noPasscode) {
+		if (options.passcode.mode === "disabled") {
 			disablePasscode();
 			console.log("Passcode authentication disabled (--no-passcode). Ensure you have your own auth layer.");
+		} else if (options.passcode.mode === "fixed") {
+			setPasscode(options.passcode.value);
+			generateInternalToken();
+			// NOTE: a caller-supplied passcode is intentionally NOT echoed — the
+			// caller already knows it, and printing it would persist a long-lived
+			// secret in process-supervisor logs (the very thing --passcode avoids).
+			console.log("\n🔐 Remote access using caller-supplied passcode (--passcode).\n");
 		} else {
 			const passcode = generatePasscode();
 			generateInternalToken();
@@ -691,6 +727,17 @@ function createProgram(invocationArgs: string[]): Command {
 			"--no-passcode",
 			"Disable auto-generated passcode for remote access (for advanced users behind a reverse proxy).",
 		)
+		.option(
+			"--passcode <value>",
+			"Pin the remote access passcode to a fixed value (stable across restarts for PM2/systemd/Docker).",
+			parseCliPasscodeValue,
+		)
+		.option(
+			"--allowed-host <host>",
+			"Extra Host/Origin hostname to accept in remote mode, e.g. a DNS or Tailscale name (repeatable).",
+			collectAllowedHost,
+			[],
+		)
 		.showHelpAfterError()
 		.addHelpText("after", `\nRuntime URL: ${getKanbanRuntimeOrigin()}`);
 
@@ -727,7 +774,8 @@ function createProgram(invocationArgs: string[]): Command {
 				https: options.https === true,
 				cert: options.cert ?? null,
 				key: options.key ?? null,
-				noPasscode: options.noPasscode === true,
+				passcode: resolvePasscodeOption(options.passcode),
+				allowedHosts: options.allowedHost ?? [],
 			},
 			shouldAutoOpenBrowser,
 		);
