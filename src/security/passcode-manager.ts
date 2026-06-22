@@ -70,6 +70,17 @@ export function generatePasscode(): string {
 	return value;
 }
 
+/**
+ * Pin the passcode to a caller-supplied value (--passcode <value> flag).
+ * Lets process supervisors (PM2, systemd, Docker) keep a stable passcode
+ * across restarts instead of re-grepping the log for a fresh random one.
+ * The value lives in-memory only, exactly like a generated passcode.
+ */
+export function setPasscode(value: string): void {
+	passcodeState = { value, issuedAt: Date.now() };
+	passcodeEnabled = true;
+}
+
 /** Disable passcode enforcement (--no-passcode flag). */
 export function disablePasscode(): void {
 	passcodeEnabled = false;

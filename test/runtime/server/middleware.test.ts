@@ -1,9 +1,23 @@
 import type { IncomingMessage } from "node:http";
 import { PassThrough } from "node:stream";
-import { describe, expect, it } from "vitest";
-import { evaluateCors, evaluateHost, handleSocketUpgrade } from "../../../src/server/middleware";
+import { afterEach, describe, expect, it } from "vitest";
+import {
+	DEFAULT_KANBAN_RUNTIME_HOST,
+	DEFAULT_KANBAN_RUNTIME_PORT,
+	setExtraAllowedHosts,
+	setKanbanRuntimeHost,
+	setKanbanRuntimePort,
+} from "../../../src/core/runtime-endpoint";
+import {
+	evaluateCors,
+	evaluateHost,
+	getAllowedHostHeaders,
+	getAllowedOrigins,
+	handleSocketUpgrade,
+} from "../../../src/server/middleware";
 
 const ALLOWED_ORIGIN = "http://127.0.0.1:3484";
+const ALLOWED_ORIGINS = new Set([ALLOWED_ORIGIN, "http://localhost:3484"]);
 const ALLOWED_HOSTS = new Set(["localhost:3484", "127.0.0.1:3484"]);
 
 function makeFakeRequest(headers: Partial<IncomingMessage["headers"]>, method = "GET"): IncomingMessage {
@@ -15,7 +29,7 @@ describe("evaluateCors", () => {
 		const decision = evaluateCors({
 			method: "GET",
 			originHeader: undefined,
-			allowedOrigin: ALLOWED_ORIGIN,
+			allowedOrigins: ALLOWED_ORIGINS,
 		});
 		expect(decision).toEqual({ kind: "allow", origin: null });
 	});
@@ -24,7 +38,7 @@ describe("evaluateCors", () => {
 		const decision = evaluateCors({
 			method: "GET",
 			originHeader: "",
-			allowedOrigin: ALLOWED_ORIGIN,
+			allowedOrigins: ALLOWED_ORIGINS,
 		});
 		expect(decision).toEqual({ kind: "allow", origin: null });
 	});
@@ -33,7 +47,7 @@ describe("evaluateCors", () => {
 		const decision = evaluateCors({
 			method: "POST",
 			originHeader: ALLOWED_ORIGIN,
-			allowedOrigin: ALLOWED_ORIGIN,
+			allowedOrigins: ALLOWED_ORIGINS,
 		});
 		expect(decision).toEqual({ kind: "allow", origin: ALLOWED_ORIGIN });
 	});
@@ -42,7 +56,7 @@ describe("evaluateCors", () => {
 		const decision = evaluateCors({
 			method: "POST",
 			originHeader: "http://evil.example.com",
-			allowedOrigin: ALLOWED_ORIGIN,
+			allowedOrigins: ALLOWED_ORIGINS,
 		});
 		expect(decision).toEqual({ kind: "reject", origin: "http://evil.example.com" });
 	});
@@ -51,7 +65,7 @@ describe("evaluateCors", () => {
 		const decision = evaluateCors({
 			method: "GET",
 			originHeader: "http://127.0.0.1:9999",
-			allowedOrigin: ALLOWED_ORIGIN,
+			allowedOrigins: ALLOWED_ORIGINS,
 		});
 		expect(decision).toEqual({ kind: "reject", origin: "http://127.0.0.1:9999" });
 	});
@@ -60,7 +74,7 @@ describe("evaluateCors", () => {
 		const decision = evaluateCors({
 			method: "GET",
 			originHeader: "https://127.0.0.1:3484",
-			allowedOrigin: ALLOWED_ORIGIN,
+			allowedOrigins: ALLOWED_ORIGINS,
 		});
 		expect(decision).toEqual({ kind: "reject", origin: "https://127.0.0.1:3484" });
 	});
@@ -69,7 +83,7 @@ describe("evaluateCors", () => {
 		const decision = evaluateCors({
 			method: "OPTIONS",
 			originHeader: ALLOWED_ORIGIN,
-			allowedOrigin: ALLOWED_ORIGIN,
+			allowedOrigins: ALLOWED_ORIGINS,
 		});
 		expect(decision).toEqual({ kind: "preflight", origin: ALLOWED_ORIGIN });
 	});
@@ -78,7 +92,7 @@ describe("evaluateCors", () => {
 		const decision = evaluateCors({
 			method: "OPTIONS",
 			originHeader: "http://evil.example.com",
-			allowedOrigin: ALLOWED_ORIGIN,
+			allowedOrigins: ALLOWED_ORIGINS,
 		});
 		expect(decision).toEqual({ kind: "reject", origin: "http://evil.example.com" });
 	});
@@ -87,7 +101,7 @@ describe("evaluateCors", () => {
 		const decision = evaluateCors({
 			method: "OPTIONS",
 			originHeader: undefined,
-			allowedOrigin: ALLOWED_ORIGIN,
+			allowedOrigins: ALLOWED_ORIGINS,
 		});
 		expect(decision).toEqual({ kind: "allow", origin: null });
 	});
@@ -126,6 +140,65 @@ describe("evaluateHost", () => {
 			kind: "reject",
 			host: "localhost:9999",
 		});
+	});
+});
+
+describe("getAllowedHostHeaders / getAllowedOrigins (remote mode)", () => {
+	// These read global runtime state, so restore defaults after each case.
+	afterEach(() => {
+		setKanbanRuntimeHost(DEFAULT_KANBAN_RUNTIME_HOST);
+		setKanbanRuntimePort(DEFAULT_KANBAN_RUNTIME_PORT);
+		setExtraAllowedHosts([]);
+	});
+
+	it("accepts the bare host AND host:port on the default HTTP port 80", () => {
+		setKanbanRuntimeHost("100.121.32.23");
+		setKanbanRuntimePort(80);
+
+		const hosts = getAllowedHostHeaders();
+		expect(hosts.has("100.121.32.23")).toBe(true); // browsers omit :80
+		expect(hosts.has("100.121.32.23:80")).toBe(true);
+
+		const origins = getAllowedOrigins();
+		expect(origins.has("http://100.121.32.23")).toBe(true);
+		expect(origins.has("http://100.121.32.23:80")).toBe(true);
+	});
+
+	it("requires the explicit port on a non-default port", () => {
+		setKanbanRuntimeHost("100.121.32.23");
+		setKanbanRuntimePort(3484);
+
+		const hosts = getAllowedHostHeaders();
+		expect(hosts.has("100.121.32.23:3484")).toBe(true);
+		expect(hosts.has("100.121.32.23")).toBe(false);
+
+		const origins = getAllowedOrigins();
+		expect(origins.has("http://100.121.32.23:3484")).toBe(true);
+		expect(origins.has("http://100.121.32.23")).toBe(false);
+	});
+
+	it("accepts operator-declared extra hostnames (DNS / Tailscale names) on port 80", () => {
+		setKanbanRuntimeHost("100.121.32.23");
+		setKanbanRuntimePort(80);
+		setExtraAllowedHosts(["kanban"]);
+
+		const hosts = getAllowedHostHeaders();
+		expect(hosts.has("kanban")).toBe(true);
+		expect(hosts.has("kanban:80")).toBe(true);
+
+		const origins = getAllowedOrigins();
+		expect(origins.has("http://kanban")).toBe(true);
+		expect(origins.has("http://kanban:80")).toBe(true);
+	});
+
+	it("lowercases extra hostnames and still rejects foreign names", () => {
+		setKanbanRuntimeHost("100.121.32.23");
+		setKanbanRuntimePort(3484);
+		setExtraAllowedHosts(["Kanban"]);
+
+		const hosts = getAllowedHostHeaders();
+		expect(hosts.has("kanban:3484")).toBe(true);
+		expect(hosts.has("attacker.example.com:3484")).toBe(false);
 	});
 });
 

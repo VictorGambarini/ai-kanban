@@ -1,10 +1,11 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
 import type { Duplex } from "node:stream";
 import {
+	getExtraAllowedHosts,
 	getKanbanRuntimeHost,
-	getKanbanRuntimeOrigin,
 	getKanbanRuntimePort,
 	isKanbanRemoteHost,
+	isKanbanRuntimeHttps,
 } from "../core/runtime-endpoint";
 
 export type CorsDecision =
@@ -15,7 +16,7 @@ export type CorsDecision =
 export interface CorsGateInput {
 	method: string | undefined;
 	originHeader: string | undefined;
-	allowedOrigin: string;
+	allowedOrigins: ReadonlySet<string>;
 }
 
 const isDev = process.env.NODE_ENV === "development";
@@ -28,9 +29,7 @@ export function evaluateCors(input: CorsGateInput): CorsDecision {
 		return { kind: "allow", origin: null };
 	}
 
-	const isDevServer = isDev && (origin === "http://localhost:4173" || origin === "http://127.0.0.1:4173");
-
-	if (origin !== input.allowedOrigin && !isDevServer) {
+	if (!input.allowedOrigins.has(origin)) {
 		return { kind: "reject", origin };
 	}
 
@@ -60,27 +59,83 @@ export function evaluateHost(input: HostGateInput): HostDecision {
 	return { kind: "allow" };
 }
 
+/** True when `port` is the default for `scheme` (browsers omit it from headers). */
+function isSchemeDefaultPort(port: number, scheme: "http" | "https"): boolean {
+	return (scheme === "http" && port === 80) || (scheme === "https" && port === 443);
+}
+
 export function getAllowedHostHeaders(): ReadonlySet<string> {
 	const port = getKanbanRuntimePort();
-	const boundHost = getKanbanRuntimeHost().toLowerCase();
+	const scheme = isKanbanRuntimeHttps() ? "https" : "http";
+	const omitsPort = isSchemeDefaultPort(port, scheme);
 	const allowed = new Set<string>();
-	const addHostPort = (host: string) => {
+	// Browsers omit the port from the Host header on the scheme default port
+	// (80/http, 443/https), so accept both the bare host and the host:port form.
+	const addHost = (host: string) => {
 		allowed.add(`${host}:${port}`);
+		if (omitsPort) {
+			allowed.add(host);
+		}
 	};
 
 	if (isKanbanRemoteHost()) {
-		addHostPort(boundHost);
+		addHost(getKanbanRuntimeHost().toLowerCase());
+		for (const extra of getExtraAllowedHosts()) {
+			const value = extra.toLowerCase();
+			// An operator-supplied value with an explicit port is used verbatim;
+			// a bare hostname gets both the bare and host:port forms.
+			if (value.includes(":")) {
+				allowed.add(value);
+			} else {
+				addHost(value);
+			}
+		}
 		return allowed;
 	}
 
-	addHostPort("localhost");
-	addHostPort("127.0.0.1");
+	addHost("localhost");
+	addHost("127.0.0.1");
 	if (isDev) {
 		// Vite's default dev server host:port
 		allowed.add("localhost:4173");
 		allowed.add("127.0.0.1:4173");
 	}
 	return allowed;
+}
+
+/**
+ * The set of browser Origin header values the server accepts. Mirrors the Host
+ * allowlist but as full `scheme://host[:port]` origins, including the
+ * port-omitted form on default ports (matching what browsers actually send).
+ */
+export function getAllowedOrigins(): ReadonlySet<string> {
+	const port = getKanbanRuntimePort();
+	const scheme = isKanbanRuntimeHttps() ? "https" : "http";
+	const omitsPort = isSchemeDefaultPort(port, scheme);
+	const origins = new Set<string>();
+	const addOrigin = (host: string) => {
+		origins.add(`${scheme}://${host}:${port}`);
+		if (omitsPort) {
+			origins.add(`${scheme}://${host}`);
+		}
+	};
+
+	if (isKanbanRemoteHost()) {
+		addOrigin(getKanbanRuntimeHost().toLowerCase());
+		for (const extra of getExtraAllowedHosts()) {
+			addOrigin(extra.toLowerCase());
+		}
+		return origins;
+	}
+
+	addOrigin("localhost");
+	addOrigin("127.0.0.1");
+	if (isDev) {
+		// Vite's default dev server origin
+		origins.add("http://localhost:4173");
+		origins.add("http://127.0.0.1:4173");
+	}
+	return origins;
 }
 
 const ALLOWED_METHODS = ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"].join(", ");
@@ -120,7 +175,7 @@ export function handleHttpRequest(req: IncomingMessage, res: ServerResponse): { 
 	const corsDecision = evaluateCors({
 		method: req.method,
 		originHeader: req.headers.origin,
-		allowedOrigin: getKanbanRuntimeOrigin(),
+		allowedOrigins: getAllowedOrigins(),
 	});
 
 	switch (corsDecision.kind) {
@@ -157,7 +212,7 @@ export function handleSocketUpgrade(request: IncomingMessage, socket: Duplex): {
 	const corsDecision = evaluateCors({
 		method: request.method,
 		originHeader: request.headers.origin,
-		allowedOrigin: getKanbanRuntimeOrigin(),
+		allowedOrigins: getAllowedOrigins(),
 	});
 	if (corsDecision.kind === "reject") {
 		return rejectSocket(socket);

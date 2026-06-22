@@ -6,6 +6,9 @@
 
 A replacement for your IDE better suited for running many agents in parallel and reviewing diffs. Each task card gets its own terminal and worktree, all handled for you automatically. Enable auto-commit and link cards together to create dependency chains that complete large amounts of work autonomously.
 
+> [!NOTE]
+> **This is a community fork** of [cline/kanban](https://github.com/cline/kanban), maintained by [@VictorGambarini](https://github.com/VictorGambarini). It tracks upstream and adds functionality for running Kanban as a **remote / self-hosted server** you reach from a browser — for example on a VM behind Tailscale. See [Remote / self-hosted access](#remote--self-hosted-access-fork-additions) for what's new. Upstream credit and license remain with Cline Bot Inc.
+
 > [!WARNING]
 > Kanban is a research preview and uses experimental features of CLI agents like bypassing permissions and runtime hooks for more autonomy. We'd love your feedback in #kanban on our [discord](https://discord.gg/cline).
 
@@ -69,6 +72,50 @@ When the work looks good, hit **Commit** or **Open PR**. Kanban sends a dynamic 
 
 ### 7. Keep track with git interface
 Click the branch name in the navbar to open a full git interface to browse commit history, switch branches, fetch, pull, push, and visualize your git all without leaving Kanban. Keep track of everything your agents are doing across branches as work is completed.
+
+---
+
+## Remote / self-hosted access (fork additions)
+
+Upstream Kanban is built to run locally and open a browser on the same machine. This fork makes it practical to run Kanban on a **remote box** (a VM, a home server, a Tailscale node) and use it from any browser, while keeping it locked down.
+
+Bind to a non-loopback host to enable **remote mode**. In remote mode Kanban auto-generates a passcode and guards every request behind it plus a Host/Origin allowlist (DNS-rebinding protection).
+
+```bash
+# Auto-generated passcode (printed once at startup)
+kanban --host 0.0.0.0
+
+# Pin a fixed passcode so it survives restarts (PM2 / systemd / Docker)
+kanban --host 0.0.0.0 --passcode "$KANBAN_PASSCODE"
+
+# Disable the passcode entirely (only if another layer handles auth,
+# e.g. a reverse proxy or a private Tailscale network)
+kanban --host 100.x.y.z --port 80 --no-passcode
+```
+
+New flags:
+
+| Flag | Description |
+| --- | --- |
+| `--passcode <value>` | Pin the remote access passcode to a fixed value instead of a fresh random one each start. Stable across restarts; not echoed to logs. |
+| `--no-passcode` | Disable passcode auth (for use behind your own auth layer). *Now actually works* — the upstream flag was parsed but never applied. |
+| `--allowed-host <host>` | Add an extra Host/Origin name the server will accept in remote mode (repeatable). Needed to reach the server by a DNS / reverse-proxy / Tailscale MagicDNS name rather than only its bound IP. Also settable via `KANBAN_ALLOWED_HOSTS` (comma-separated). |
+
+The Host/Origin gates also now accept the bare host on the scheme default ports (80/443), so a normal `http://your-host/` URL works without the port suffix.
+
+**Example: Tailscale-only on port 80 via systemd.** Reachable from your devices as `http://kanban/ai-kanban` over the tailnet, never exposed to the public internet:
+
+```ini
+# /etc/systemd/system/kanban.service
+[Service]
+ExecStart=/usr/bin/node /path/to/kanban/dist/cli.js \
+  --host 100.x.y.z --port 80 --no-passcode --no-open --allowed-host kanban
+AmbientCapabilities=CAP_NET_BIND_SERVICE
+Restart=on-failure
+```
+
+> [!WARNING]
+> Kanban runs coding agents that execute arbitrary code. Do not expose it to the public internet behind only a passcode. Prefer a private network (Tailscale/WireGuard/VPN), an SSH tunnel, or an authenticating reverse proxy.
 
 ---
 
