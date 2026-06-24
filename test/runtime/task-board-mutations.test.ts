@@ -272,3 +272,105 @@ describe("per-task agent/model/provider overrides", () => {
 		});
 	});
 });
+
+describe("per-task skill selection", () => {
+	it("stores selected skillNames on create", () => {
+		const created = addTaskToColumn(
+			createBoard(),
+			"backlog",
+			{ prompt: "Task", baseRef: "main", skillNames: ["alpha", "beta"] },
+			() => "aaaaa111",
+		);
+
+		expect(created.task.skillNames).toEqual(["alpha", "beta"]);
+	});
+
+	it("omits skillNames when none selected", () => {
+		const created = addTaskToColumn(createBoard(), "backlog", { prompt: "Task", baseRef: "main" }, () => "aaaaa111");
+		expect(created.task.skillNames).toBeUndefined();
+	});
+
+	it("treats an empty skillNames array as no selection", () => {
+		const created = addTaskToColumn(
+			createBoard(),
+			"backlog",
+			{ prompt: "Task", baseRef: "main", skillNames: [] },
+			() => "aaaaa111",
+		);
+		expect(created.task.skillNames).toBeUndefined();
+	});
+
+	it("copies skillNames so later mutation of the input array does not leak in", () => {
+		const input = ["alpha"];
+		const created = addTaskToColumn(
+			createBoard(),
+			"backlog",
+			{ prompt: "Task", baseRef: "main", skillNames: input },
+			() => "aaaaa111",
+		);
+		input.push("beta");
+		expect(created.task.skillNames).toEqual(["alpha"]);
+	});
+
+	it("replaces skillNames on update", () => {
+		const created = addTaskToColumn(
+			createBoard(),
+			"backlog",
+			{ prompt: "Task", baseRef: "main", skillNames: ["alpha"] },
+			() => "aaaaa111",
+		);
+
+		const updated = updateTask(created.board, created.task.id, {
+			prompt: "Task",
+			baseRef: "main",
+			skillNames: ["beta", "gamma"],
+		});
+
+		expect(updated.task?.skillNames).toEqual(["beta", "gamma"]);
+	});
+
+	it("preserves existing skillNames when update omits them", () => {
+		const created = addTaskToColumn(
+			createBoard(),
+			"backlog",
+			{ prompt: "Task", baseRef: "main", skillNames: ["alpha"] },
+			() => "aaaaa111",
+		);
+
+		const updated = updateTask(created.board, created.task.id, {
+			prompt: "Updated",
+			baseRef: "main",
+		});
+
+		expect(updated.task?.skillNames).toEqual(["alpha"]);
+	});
+
+	it("clears skillNames when update provides null", () => {
+		const created = addTaskToColumn(
+			createBoard(),
+			"backlog",
+			{ prompt: "Task", baseRef: "main", skillNames: ["alpha"] },
+			() => "aaaaa111",
+		);
+
+		const updated = updateTask(created.board, created.task.id, {
+			prompt: "Task",
+			baseRef: "main",
+			skillNames: null,
+		});
+
+		expect(updated.task?.skillNames).toBeUndefined();
+	});
+
+	it("preserves skillNames across move operations", () => {
+		const created = addTaskToColumn(
+			createBoard(),
+			"backlog",
+			{ prompt: "Task", baseRef: "main", skillNames: ["alpha", "beta"] },
+			() => "aaaaa111",
+		);
+
+		const moved = moveTaskToColumn(created.board, created.task.id, "in_progress");
+		expect(moved.task?.skillNames).toEqual(["alpha", "beta"]);
+	});
+});

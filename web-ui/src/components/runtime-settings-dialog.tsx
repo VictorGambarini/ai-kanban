@@ -37,6 +37,7 @@ import { Button } from "@/components/ui/button";
 import { cn } from "@/components/ui/cn";
 import { Dialog, DialogFooter, DialogHeader } from "@/components/ui/dialog";
 import { NativeSelect } from "@/components/ui/native-select";
+import { WorkspaceSkillsPanel } from "@/components/workspace-skills-panel";
 import { TASK_GIT_BASE_REF_PROMPT_VARIABLE, type TaskGitAction } from "@/git-actions/build-task-git-action-prompt";
 import { useRuntimeSettingsClineController } from "@/hooks/use-runtime-settings-cline-controller";
 import { useRuntimeSettingsClineMcpController } from "@/hooks/use-runtime-settings-cline-mcp-controller";
@@ -1164,6 +1165,10 @@ export function RuntimeSettingsDialog({
 							<span className="text-text-primary">{saveError}</span>
 						</div>
 					) : null}
+
+					<div className="rounded-lg border border-border bg-surface-0 px-4 py-3">
+						<WorkspaceSkillsPanel workspaceId={workspaceId} />
+					</div>
 				</div>
 			</div>
 			<DialogFooter>
