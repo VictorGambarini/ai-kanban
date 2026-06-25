@@ -590,6 +590,7 @@ export function TaskCreateDialog({
 							skillNames={skillNames}
 							onSkillNamesChange={onSkillNamesChange}
 							workspaceSkills={workspaceSkills}
+							workspaceId={workspaceId}
 							agentOptions={agentOptions}
 							clineProviderOptions={clineProviderOptions}
 							clineModelOptions={clineModelOptions}

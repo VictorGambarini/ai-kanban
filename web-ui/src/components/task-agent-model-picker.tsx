@@ -29,6 +29,7 @@ import type {
 	RuntimeTaskClineSettings,
 	RuntimeWorkspaceSkill,
 } from "@/runtime/types";
+import { readSkillUsageCounts } from "@/storage/skill-preferences";
 
 // ---------------------------------------------------------------------------
 // Hook: manages fetch state for Cline provider catalog + model lists
@@ -264,6 +265,7 @@ export function TaskAgentModelPicker({
 	skillNames = [],
 	onSkillNamesChange,
 	workspaceSkills = [],
+	workspaceId = null,
 	agentOptions,
 	clineProviderOptions,
 	clineModelOptions,
@@ -284,6 +286,8 @@ export function TaskAgentModelPicker({
 	skillNames?: string[];
 	onSkillNamesChange?: (value: string[]) => void;
 	workspaceSkills?: RuntimeWorkspaceSkill[];
+	/** Workspace/project id — used to order skills by how often they've been used here. */
+	workspaceId?: string | null;
 	agentOptions: Array<{ value: string; label: string }>;
 	clineProviderOptions: Array<{ value: string; label: string }>;
 	clineModelOptions: Array<{ value: string; label: string }>;
@@ -486,10 +490,15 @@ export function TaskAgentModelPicker({
 	}, [clineModelId, isLoadingModels, modelPickerOptions.options, updateTaskClineSettings]);
 
 	// Only enabled skills are selectable per task; disabling a skill in settings hides it here.
-	const skillGroups = useMemo(
-		() => groupSkillsBySource(workspaceSkills.filter((skill) => !skill.disabled)),
-		[workspaceSkills],
-	);
+	// Within each source group, surface the skills used most often in this workspace first.
+	const skillUsageCounts = useMemo(() => readSkillUsageCounts(workspaceId), [workspaceId]);
+	const skillGroups = useMemo(() => {
+		const groups = groupSkillsBySource(workspaceSkills.filter((skill) => !skill.disabled));
+		return groups.map((group) => ({
+			...group,
+			skills: [...group.skills].sort((a, b) => (skillUsageCounts[b.name] ?? 0) - (skillUsageCounts[a.name] ?? 0)),
+		}));
+	}, [workspaceSkills, skillUsageCounts]);
 
 	return (
 		<div className="flex flex-col gap-2">

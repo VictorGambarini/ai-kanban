@@ -322,6 +322,7 @@ export function TaskInlineCreateCard({
 						skillNames={skillNames}
 						onSkillNamesChange={onSkillNamesChange}
 						workspaceSkills={workspaceSkills}
+						workspaceId={workspaceId}
 						agentOptions={agentOptions}
 						clineProviderOptions={clineProviderOptions}
 						clineModelOptions={clineModelOptions}
