@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { promisify } from "node:util";
 import { parse as parseYaml, stringify as stringifyYaml } from "yaml";
 import { parseSkillsShSource, type RuntimeWorkspaceSkill } from "../core/api-contract";
+import { ensureSkillGitExcludes } from "./skill-git-exclude";
 
 const execFileAsync = promisify(execFile);
 
@@ -136,6 +137,8 @@ export async function installSkill(workspacePath: string, source: string, skillN
 	await runSubprocess("npx", args, { cwd: workspacePath });
 
 	await stampInstallMetadata(workspacePath, repo, before);
+	// Skills are installed into the project (.agents/.claude); keep them out of git diffs.
+	await ensureSkillGitExcludes(workspacePath);
 }
 
 /** Stamps installedFrom/installedAt frontmatter onto skills that appeared after an install. */

@@ -1,6 +1,8 @@
 import { cp, mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { RuntimeAgentId } from "../core/api-contract";
+import { ensureSkillGitExcludes } from "./skill-git-exclude";
+import { buildClaudeSkillOverrides, listDiscoverableClaudeSkillNames } from "./skill-isolation";
 import { listSkills } from "./workspace-skill-service";
 
 const KANBAN_SKILLS_START = "<!-- kanban-skills-start -->";
@@ -44,7 +46,40 @@ class ClaudeSkillInjector implements SkillInjector {
 			await copySkillDir(srcDir, join(worktreePath, ".agents", "skills", name));
 			await copySkillDir(srcDir, join(worktreePath, ".claude", "skills", name));
 		}
-		await this.writeClaudeLocalMd(worktreePath, [...skillDirs.keys()]);
+		const selectedNames = [...skillDirs.keys()];
+		await this.writeClaudeLocalMd(worktreePath, selectedNames);
+		await this.writeSkillOverrides(worktreePath, selectedNames);
+	}
+
+	// Hide every other skill Claude would auto-discover (personal + project + bundled)
+	// so only the task's selected skills are visible, via project-scoped settings.
+	private async writeSkillOverrides(worktreePath: string, selectedNames: string[]): Promise<void> {
+		const discoverable = await listDiscoverableClaudeSkillNames(worktreePath);
+		const overrides = buildClaudeSkillOverrides(discoverable, selectedNames);
+
+		const settingsPath = join(worktreePath, ".claude", "settings.local.json");
+		let existing: Record<string, unknown> = {};
+		try {
+			const parsed = JSON.parse(await readFile(settingsPath, "utf8")) as unknown;
+			if (parsed && typeof parsed === "object") {
+				existing = parsed as Record<string, unknown>;
+			}
+		} catch {
+			// No existing settings (or unparseable) — start fresh.
+		}
+
+		const existingOverrides =
+			existing.skillOverrides && typeof existing.skillOverrides === "object"
+				? (existing.skillOverrides as Record<string, unknown>)
+				: {};
+		const merged = {
+			...existing,
+			disableBundledSkills: true,
+			skillOverrides: { ...existingOverrides, ...overrides },
+		};
+
+		await mkdir(join(worktreePath, ".claude"), { recursive: true });
+		await writeFile(settingsPath, `${JSON.stringify(merged, null, 2)}\n`, "utf8");
 	}
 
 	private async writeClaudeLocalMd(worktreePath: string, skillNames: string[]): Promise<void> {
@@ -101,4 +136,7 @@ export async function injectSkillsForAgent(
 		return;
 	}
 	await SKILL_INJECTORS[agentId]?.inject(worktreePath, workspacePath, skillNames);
+	// Keep injected skill files out of the task diff. info/exclude is shared across the
+	// common git dir, so passing the workspace repo also covers every worktree.
+	await ensureSkillGitExcludes(workspacePath);
 }
