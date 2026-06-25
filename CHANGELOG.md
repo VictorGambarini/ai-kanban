@@ -10,7 +10,7 @@
 - Per-task skill selection now uses toggles instead of hard-to-see checkboxes, hides skills you've disabled in Settings, and shows full skill descriptions in a wrapped tooltip
 - Toggling and deleting skills in Settings is now optimistic, so it feels instant instead of freezing while the skills list reloads
 - Injected and installed skill files no longer clutter task diffs — they're added to the repo's git exclude (untracked-only, so skills you track yourself are unaffected)
-- For Claude Code tasks, only the skills you selected are visible to the agent; all other discoverable and bundled skills are hidden for that run via project-scoped `skillOverrides`. For Cline, the task worktree contains only your selected skills (Cline offers no per-run knob to hide globally-installed skills)
+- For Claude Code tasks, your personal and bundled skills are hidden for the run (via project-scoped `skillOverrides` + `disableBundledSkills`) so only the skills you selected are visible. Marketplace plugin skills can't be scoped this way and still appear. For Cline, the task worktree contains only your selected skills (Cline offers no per-run knob to hide globally-installed skills)
 
 ## [0.1.68]
 
