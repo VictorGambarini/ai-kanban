@@ -19,6 +19,7 @@ vi.mock("node:child_process", () => ({
 	}),
 }));
 
+import { parseSkillsShSource } from "../../../src/core/api-contract";
 import {
 	createSkill,
 	installSkill,
@@ -179,6 +180,67 @@ describe("installSkill", () => {
 		await installSkill(workspace, "owner/repo", ["one", "two"]);
 		const args = findCliCall("add");
 		expect(args).toEqual(expect.arrayContaining(["--skill", "one", "--skill", "two"]));
+	});
+
+	it("normalizes a skills.sh URL to owner/repo and filters to the named skill", async () => {
+		await installSkill(workspace, "https://www.skills.sh/anthropics/skills/frontend-design");
+		const args = findCliCall("add");
+		expect(args).toContain("anthropics/skills");
+		expect(args).not.toContain("https://www.skills.sh/anthropics/skills/frontend-design");
+		expect(args).toEqual(expect.arrayContaining(["--skill", "frontend-design"]));
+	});
+
+	it("stamps installedFrom/installedAt onto skills that appear after install", async () => {
+		// The skill exists on disk, but the mocked CLI list only surfaces it *after* the add.
+		await createSkill(workspace, { name: "frontend-design", description: "d", instructions: "body" });
+		const dir = join(workspace, ".agents/skills/frontend-design");
+		let listCalls = 0;
+		childProcessMocks.execFilePromise.mockImplementation(async (_b: string, args: string[]) => {
+			if (args[0] === "skills" && args[1] === "list") {
+				listCalls += 1;
+				const isProject = args.includes("-p");
+				// First project-scope list (the pre-install snapshot) sees nothing.
+				const visible = isProject && listCalls > 1;
+				return {
+					stdout: visible
+						? JSON.stringify([{ name: "frontend-design", path: dir, scope: "project", agents: [] }])
+						: "[]",
+				};
+			}
+			return { stdout: "" };
+		});
+
+		await installSkill(workspace, "anthropics/skills", ["frontend-design"]);
+
+		const md = await readFile(join(dir, "SKILL.md"), "utf8");
+		const fm = frontmatterOf(md);
+		expect(fm.installedFrom).toBe("anthropics/skills");
+		expect(typeof fm.installedAt).toBe("string");
+		expect(Number.isNaN(Date.parse(fm.installedAt as string))).toBe(false);
+		expect(md).toContain("body");
+	});
+});
+
+describe("parseSkillsShSource", () => {
+	it("extracts owner/repo and skill from a skills.sh URL", () => {
+		expect(parseSkillsShSource("https://www.skills.sh/anthropics/skills/frontend-design")).toEqual({
+			repo: "anthropics/skills",
+			skill: "frontend-design",
+		});
+	});
+
+	it("handles a skills.sh URL without a specific skill", () => {
+		expect(parseSkillsShSource("https://skills.sh/anthropics/skills")).toEqual({ repo: "anthropics/skills" });
+	});
+
+	it("passes through a bare owner/repo slug", () => {
+		expect(parseSkillsShSource("owner/repo")).toEqual({ repo: "owner/repo" });
+	});
+
+	it("normalizes a GitHub URL and tolerates a trailing slash / .git", () => {
+		expect(parseSkillsShSource("https://github.com/anthropics/skills.git/")).toEqual({
+			repo: "anthropics/skills",
+		});
 	});
 });
 

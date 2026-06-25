@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.1.69]
+
+- Skills now have their own top-level section in Settings instead of being nested under Project
+- Installed skills are grouped by their source collection (e.g. `anthropics/skills`) in collapsible groups, both in Settings and in a task's skill picker, so large skill lists stay navigable
+- Recently-installed skills show a "NEW" badge for 48 hours
+- Install skills directly from a skills.sh URL; when the URL points to a specific skill, you can choose to install just that skill or its whole collection
+- Enable/disable a whole skill group at once in Settings, and select/deselect a whole group at once when picking skills for a task
+- Per-task skill selection now uses toggles instead of hard-to-see checkboxes, hides skills you've disabled in Settings, and shows full skill descriptions in a wrapped tooltip
+- Toggling and deleting skills in Settings is now optimistic, so it feels instant instead of freezing while the skills list reloads
+
 ## [0.1.68]
 
 - Codex hooks are now pre-trusted, eliminating permission prompts when Kanban manages Codex sessions
