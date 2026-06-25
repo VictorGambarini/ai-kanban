@@ -12,6 +12,7 @@ import type {
 
 const fetchClineProviderCatalogMock = vi.hoisted(() => vi.fn());
 const fetchClineProviderModelsMock = vi.hoisted(() => vi.fn());
+const fetchWorkspaceSkillsMock = vi.hoisted(() => vi.fn());
 
 vi.mock("@runtime-agent-catalog", () => ({
 	getRuntimeLaunchSupportedAgentCatalog: vi.fn(() => [
@@ -23,6 +24,7 @@ vi.mock("@runtime-agent-catalog", () => ({
 vi.mock("@/runtime/runtime-config-query", () => ({
 	fetchClineProviderCatalog: fetchClineProviderCatalogMock,
 	fetchClineProviderModels: fetchClineProviderModelsMock,
+	fetchWorkspaceSkills: fetchWorkspaceSkillsMock,
 }));
 
 function createProvider(
@@ -45,6 +47,7 @@ beforeEach(() => {
 	container = document.createElement("div");
 	document.body.appendChild(container);
 	root = createRoot(container);
+	fetchWorkspaceSkillsMock.mockResolvedValue([]);
 });
 
 afterEach(() => {
