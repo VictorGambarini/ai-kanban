@@ -140,24 +140,27 @@ jobs:
             ${{ steps.compare.outputs.link }}
           prerelease: ${{ contains(steps.resolve_tag.outputs.tag, '-') }}
 
-      - name: Post release to Slack
-        uses: slackapi/slack-github-action@v3.0.1
-        with:
-          method: chat.postMessage
-          token: ${{ secrets.SLACK_RELEASE_BOT_TOKEN }}
-          payload: |
-            channel: "C0APVKGGZFC"
-            text: "Kanban ${{ steps.resolve_tag.outputs.tag }}"
-            blocks:
-              - type: "section"
-                text:
-                  type: "mrkdwn"
-                  text: "*Kanban ${{ steps.resolve_tag.outputs.tag }}*"
-              - type: "section"
-                text:
-                  type: "mrkdwn"
-                  text: ${{ toJSON(steps.changelog.outputs.body) }}
-              - type: "context"
-                elements:
-                  - type: "mrkdwn"
-                    text: "${{ steps.compare.outputs.link }}"
+      # Disabled in this fork: this posts to the upstream Cline Slack workspace using a
+      # secret the fork does not have (SLACK_RELEASE_BOT_TOKEN), so it would fail the run.
+      # Re-enable with your own bot token and channel id if you want release notifications.
+      # - name: Post release to Slack
+      #   uses: slackapi/slack-github-action@v3.0.1
+      #   with:
+      #     method: chat.postMessage
+      #     token: ${{ secrets.SLACK_RELEASE_BOT_TOKEN }}
+      #     payload: |
+      #       channel: "C0APVKGGZFC"
+      #       text: "Kanban ${{ steps.resolve_tag.outputs.tag }}"
+      #       blocks:
+      #         - type: "section"
+      #           text:
+      #             type: "mrkdwn"
+      #             text: "*Kanban ${{ steps.resolve_tag.outputs.tag }}*"
+      #         - type: "section"
+      #           text:
+      #             type: "mrkdwn"
+      #             text: ${{ toJSON(steps.changelog.outputs.body) }}
+      #         - type: "context"
+      #           elements:
+      #             - type: "mrkdwn"
+      #               text: "${{ steps.compare.outputs.link }}"

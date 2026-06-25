@@ -10,6 +10,7 @@ import {
 } from "@/hooks/app-utils";
 import type { RuntimeAgentId, RuntimeTaskClineSettings } from "@/runtime/types";
 import { addTaskToColumnWithResult, findCardSelection, updateTask, updateTaskTitle } from "@/state/board-state";
+import { readLastUsedSkillNames, recordSkillSelection } from "@/storage/skill-preferences";
 import { toTelemetrySelectedAgentId, trackTaskCreated } from "@/telemetry/events";
 import type { BoardCard, BoardData, TaskAutoReviewMode, TaskImage } from "@/types";
 import { resolveTaskAutoReviewMode } from "@/types";
@@ -127,7 +128,8 @@ export function useTaskEditor({
 
 	const [newTaskAgentId, setNewTaskAgentId] = useState<RuntimeAgentId | undefined>(undefined);
 	const [newTaskClineSettings, setNewTaskClineSettings] = useState<RuntimeTaskClineSettings | undefined>(undefined);
-	const [newTaskSkillNames, setNewTaskSkillNames] = useState<string[]>([]);
+	// New tasks default to the last selection made in this workspace (see skill-preferences).
+	const [newTaskSkillNames, setNewTaskSkillNames] = useState<string[]>(() => readLastUsedSkillNames(currentProjectId));
 	const [editTaskAgentId, setEditTaskAgentId] = useState<RuntimeAgentId | undefined>(undefined);
 	const [editTaskClineSettings, setEditTaskClineSettings] = useState<RuntimeTaskClineSettings | undefined>(undefined);
 	const [editTaskSkillNames, setEditTaskSkillNames] = useState<string[]>([]);
@@ -215,9 +217,9 @@ export function useTaskEditor({
 
 		setNewTaskAgentId(undefined);
 		setNewTaskClineSettings(undefined);
-		setNewTaskSkillNames([]);
+		setNewTaskSkillNames(readLastUsedSkillNames(currentProjectId));
 		setIsInlineTaskCreateOpen(true);
-	}, []);
+	}, [currentProjectId]);
 
 	const handleCancelCreateTask = useCallback(() => {
 		setIsInlineTaskCreateOpen(false);
@@ -227,8 +229,8 @@ export function useTaskEditor({
 		setNewTaskBranchRef(resolvedDefaultTaskBranchRef);
 		setNewTaskAgentId(undefined);
 		setNewTaskClineSettings(undefined);
-		setNewTaskSkillNames([]);
-	}, [resolvedDefaultTaskBranchRef]);
+		setNewTaskSkillNames(readLastUsedSkillNames(currentProjectId));
+	}, [currentProjectId, resolvedDefaultTaskBranchRef]);
 
 	const handleOpenEditTask = useCallback(
 		(task: BoardCard, options?: OpenEditTaskOptions) => {
@@ -382,12 +384,13 @@ export function useTaskEditor({
 				}));
 			}
 
+			recordSkillSelection(currentProjectId, newTaskSkillNames);
 			setNewTaskPrompt("");
 			setNewTaskImages([]);
 			setNewTaskBranchRef(baseRef);
 			setNewTaskAgentId(undefined);
 			setNewTaskClineSettings(undefined);
-			setNewTaskSkillNames([]);
+			setNewTaskSkillNames(readLastUsedSkillNames(currentProjectId));
 			if (!options?.keepDialogOpen) {
 				setIsInlineTaskCreateOpen(false);
 			}
@@ -456,12 +459,13 @@ export function useTaskEditor({
 				}));
 			}
 
+			recordSkillSelection(currentProjectId, newTaskSkillNames);
 			setNewTaskPrompt("");
 			setNewTaskImages([]);
 			setNewTaskBranchRef(baseRef);
 			setNewTaskAgentId(undefined);
 			setNewTaskClineSettings(undefined);
-			setNewTaskSkillNames([]);
+			setNewTaskSkillNames(readLastUsedSkillNames(currentProjectId));
 			if (!options?.keepDialogOpen) {
 				setIsInlineTaskCreateOpen(false);
 			}
@@ -504,8 +508,8 @@ export function useTaskEditor({
 		setNewTaskImages([]);
 		setNewTaskAgentId(undefined);
 		setNewTaskClineSettings(undefined);
-		setNewTaskSkillNames([]);
-	}, []);
+		setNewTaskSkillNames(readLastUsedSkillNames(currentProjectId));
+	}, [currentProjectId]);
 
 	return {
 		isInlineTaskCreateOpen,

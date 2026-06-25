@@ -3,7 +3,8 @@ import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { promisify } from "node:util";
 import { parse as parseYaml, stringify as stringifyYaml } from "yaml";
-import type { RuntimeWorkspaceSkill } from "../core/api-contract";
+import { parseSkillsShSource, type RuntimeWorkspaceSkill } from "../core/api-contract";
+import { ensureSkillGitExcludes } from "./skill-git-exclude";
 
 const execFileAsync = promisify(execFile);
 
@@ -46,13 +47,22 @@ function serializeSkill(frontmatter: SkillFrontmatter, body: string): string {
 	return `---\n${yaml}\n---\n\n${trimmedBody}`;
 }
 
-function parseSkillFrontmatter(content: string): { description?: string; disabled?: boolean } {
+function parseSkillFrontmatter(content: string): {
+	description?: string;
+	disabled?: boolean;
+	installedFrom?: string;
+	installedAt?: string;
+} {
 	const { frontmatter } = splitFrontmatter(content);
 	const description = typeof frontmatter.description === "string" ? frontmatter.description.trim() : undefined;
 	const disabled = typeof frontmatter.disabled === "boolean" ? frontmatter.disabled : undefined;
+	const installedFrom = typeof frontmatter.installedFrom === "string" ? frontmatter.installedFrom.trim() : undefined;
+	const installedAt = typeof frontmatter.installedAt === "string" ? frontmatter.installedAt.trim() : undefined;
 	return {
 		description: description || undefined,
 		disabled,
+		installedFrom: installedFrom || undefined,
+		installedAt: installedAt || undefined,
 	};
 }
 
@@ -62,11 +72,18 @@ function setFrontmatterField(content: string, field: string, value: unknown): st
 	return serializeSkill(frontmatter, body);
 }
 
-async function readSkillMeta(skillPath: string): Promise<{ description?: string; disabled: boolean }> {
+async function readSkillMeta(
+	skillPath: string,
+): Promise<{ description?: string; disabled: boolean; installedFrom?: string; installedAt?: string }> {
 	try {
 		const content = await readFile(join(skillPath, SKILL_MAIN_FILE), "utf8");
 		const parsed = parseSkillFrontmatter(content);
-		return { description: parsed.description, disabled: parsed.disabled === true };
+		return {
+			description: parsed.description,
+			disabled: parsed.disabled === true,
+			installedFrom: parsed.installedFrom,
+			installedAt: parsed.installedAt,
+		};
 	} catch {
 		return { disabled: false };
 	}
@@ -97,6 +114,8 @@ export async function listSkills(workspacePath: string): Promise<RuntimeWorkspac
 				description: meta.description,
 				disabled: meta.disabled,
 				dirPath: entry.path,
+				installedFrom: meta.installedFrom,
+				installedAt: meta.installedAt,
 			});
 		}
 	}
@@ -104,13 +123,43 @@ export async function listSkills(workspacePath: string): Promise<RuntimeWorkspac
 }
 
 export async function installSkill(workspacePath: string, source: string, skillNames?: string[]): Promise<void> {
-	const args = ["skills", "add", source, "--agent", "claude-code", "--agent", "cline", "--copy", "--yes", "-p"];
-	if (skillNames && skillNames.length > 0) {
-		for (const name of skillNames) {
-			args.push("--skill", name);
-		}
+	const { repo, skill } = parseSkillsShSource(source);
+	// A skill named directly in the source URL acts as a default filter, but an explicit
+	// skillNames argument from the caller takes precedence.
+	const effectiveSkillNames = skillNames && skillNames.length > 0 ? skillNames : skill ? [skill] : [];
+
+	const before = new Set((await listSkills(workspacePath)).map((s) => s.name));
+
+	const args = ["skills", "add", repo, "--agent", "claude-code", "--agent", "cline", "--copy", "--yes", "-p"];
+	for (const name of effectiveSkillNames) {
+		args.push("--skill", name);
 	}
 	await runSubprocess("npx", args, { cwd: workspacePath });
+
+	await stampInstallMetadata(workspacePath, repo, before);
+	// Skills are installed into the project (.agents/.claude); keep them out of git diffs.
+	await ensureSkillGitExcludes(workspacePath);
+}
+
+/** Stamps installedFrom/installedAt frontmatter onto skills that appeared after an install. */
+async function stampInstallMetadata(workspacePath: string, repo: string, before: Set<string>): Promise<void> {
+	const installedAt = new Date().toISOString();
+	const after = await listSkills(workspacePath);
+	await Promise.all(
+		after
+			.filter((skill) => !before.has(skill.name) && skill.dirPath)
+			.map(async (skill) => {
+				try {
+					const skillMdPath = join(skill.dirPath, SKILL_MAIN_FILE);
+					const content = await readFile(skillMdPath, "utf8");
+					let updated = setFrontmatterField(content, "installedFrom", repo);
+					updated = setFrontmatterField(updated, "installedAt", installedAt);
+					await writeFile(skillMdPath, updated, "utf8");
+				} catch {
+					// Best-effort metadata; a failure here must not fail the install.
+				}
+			}),
+	);
 }
 
 export async function removeSkill(workspacePath: string, name: string): Promise<void> {
