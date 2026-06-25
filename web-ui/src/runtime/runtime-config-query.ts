@@ -31,6 +31,7 @@ import type {
 	RuntimeProjectShortcut,
 	RuntimeRunUpdateResponse,
 	RuntimeUpdateStatusResponse,
+	RuntimeWorkspaceSkill,
 } from "@/runtime/types";
 
 export async function fetchRuntimeConfig(workspaceId: string | null): Promise<RuntimeConfigResponse> {
@@ -250,4 +251,9 @@ export async function fetchRuntimeUpdateStatus(workspaceId: string | null): Prom
 export async function runRuntimeUpdateNow(workspaceId: string | null): Promise<RuntimeRunUpdateResponse> {
 	const trpcClient = getRuntimeTrpcClient(workspaceId);
 	return await trpcClient.runtime.runUpdateNow.mutate();
+}
+
+export async function fetchWorkspaceSkills(workspaceId: string | null): Promise<RuntimeWorkspaceSkill[]> {
+	const trpcClient = getRuntimeTrpcClient(workspaceId);
+	return await trpcClient.workspace.skillsList.query();
 }

@@ -304,6 +304,8 @@ export default function App(): ReactElement {
 		setNewTaskAgentId,
 		newTaskClineSettings,
 		setNewTaskClineSettings,
+		newTaskSkillNames,
+		setNewTaskSkillNames,
 		editingTaskId,
 		editTaskPrompt,
 		setEditTaskPrompt,
@@ -322,6 +324,8 @@ export default function App(): ReactElement {
 		setEditTaskAgentId,
 		editTaskClineSettings,
 		setEditTaskClineSettings,
+		editTaskSkillNames,
+		setEditTaskSkillNames,
 		handleOpenCreateTask,
 		handleCancelCreateTask,
 		handleOpenEditTask,
@@ -785,6 +789,8 @@ export default function App(): ReactElement {
 			onAgentIdChange={setEditTaskAgentId}
 			clineSettings={editTaskClineSettings}
 			onClineSettingsChange={setEditTaskClineSettings}
+			skillNames={editTaskSkillNames}
+			onSkillNamesChange={setEditTaskSkillNames}
 			defaultAgentId={runtimeProjectConfig?.selectedAgentId ?? null}
 			defaultProviderId={defaultTaskClineProviderId}
 			defaultModelId={runtimeProjectConfig?.clineProviderSettings?.modelId ?? null}
@@ -1133,6 +1139,8 @@ export default function App(): ReactElement {
 					onAgentIdChange={setNewTaskAgentId}
 					clineSettings={newTaskClineSettings}
 					onClineSettingsChange={setNewTaskClineSettings}
+					skillNames={newTaskSkillNames}
+					onSkillNamesChange={setNewTaskSkillNames}
 					defaultAgentId={runtimeProjectConfig?.selectedAgentId ?? null}
 					defaultProviderId={defaultTaskClineProviderId}
 					defaultModelId={runtimeProjectConfig?.clineProviderSettings?.modelId ?? null}

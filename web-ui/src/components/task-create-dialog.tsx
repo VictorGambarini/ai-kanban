@@ -122,6 +122,8 @@ export function TaskCreateDialog({
 	onAgentIdChange,
 	clineSettings,
 	onClineSettingsChange,
+	skillNames,
+	onSkillNamesChange,
 	defaultAgentId,
 	defaultProviderId,
 	defaultModelId,
@@ -153,6 +155,8 @@ export function TaskCreateDialog({
 	onAgentIdChange?: (value: RuntimeAgentId | undefined) => void;
 	clineSettings?: RuntimeTaskClineSettings | undefined;
 	onClineSettingsChange?: (value: RuntimeTaskClineSettings | undefined) => void;
+	skillNames?: string[];
+	onSkillNamesChange?: (value: string[]) => void;
 	/** Default agent ID from runtimeConfig.selectedAgentId, used to show "Default (AgentName)" in picker */
 	defaultAgentId?: RuntimeAgentId | null;
 	/** Default Cline provider ID from runtimeConfig.clineProviderSettings.providerId */
@@ -186,6 +190,7 @@ export function TaskCreateDialog({
 		isLoadingProviders,
 		isLoadingModels,
 		providerDefaultModels,
+		workspaceSkills,
 	} = useTaskAgentModelPicker({
 		active: open,
 		workspaceId,
@@ -582,6 +587,9 @@ export function TaskCreateDialog({
 							onAgentIdChange={onAgentIdChange}
 							clineSettings={clineSettings}
 							onClineSettingsChange={onClineSettingsChange}
+							skillNames={skillNames}
+							onSkillNamesChange={onSkillNamesChange}
+							workspaceSkills={workspaceSkills}
 							agentOptions={agentOptions}
 							clineProviderOptions={clineProviderOptions}
 							clineModelOptions={clineModelOptions}

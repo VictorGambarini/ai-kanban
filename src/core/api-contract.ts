@@ -129,6 +129,14 @@ function normalizeRuntimeTaskClineSettings(input: {
 	};
 }
 
+export const runtimeWorkspaceSkillSchema = z.object({
+	name: z.string(),
+	description: z.string().optional(),
+	disabled: z.boolean(),
+	dirPath: z.string(),
+});
+export type RuntimeWorkspaceSkill = z.infer<typeof runtimeWorkspaceSkillSchema>;
+
 export const runtimeBoardCardSchema = z
 	.object({
 		id: z.string(),
@@ -140,6 +148,7 @@ export const runtimeBoardCardSchema = z
 		images: z.array(runtimeTaskImageSchema).optional(),
 		agentId: runtimeAgentIdSchema.optional(),
 		clineSettings: runtimeTaskClineSettingsSchema.optional(),
+		skillNames: z.array(z.string()).optional(),
 		clineProviderId: z.string().optional(),
 		clineModelId: z.string().optional(),
 		clineReasoningEffort: runtimeLegacyTaskClineReasoningEffortSchema.optional(),
@@ -983,6 +992,7 @@ export const runtimeTaskSessionStartRequestSchema = z.object({
 	rows: z.number().int().positive().optional(),
 	agentId: runtimeAgentIdSchema.optional(),
 	clineSettings: runtimeTaskClineSettingsSchema.optional(),
+	skillNames: z.array(z.string()).optional(),
 });
 export type RuntimeTaskSessionStartRequest = z.infer<typeof runtimeTaskSessionStartRequestSchema>;
 

@@ -1,6 +1,7 @@
+import * as Checkbox from "@radix-ui/react-checkbox";
 import * as Collapsible from "@radix-ui/react-collapsible";
 import { getRuntimeLaunchSupportedAgentCatalog } from "@runtime-agent-catalog";
-import { ChevronDown } from "lucide-react";
+import { Check, ChevronDown } from "lucide-react";
 import type { ReactElement } from "react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
@@ -13,13 +14,18 @@ import {
 import { SearchSelectDropdown } from "@/components/search-select-dropdown";
 import { cn } from "@/components/ui/cn";
 import { NativeSelect } from "@/components/ui/native-select";
-import { fetchClineProviderCatalog, fetchClineProviderModels } from "@/runtime/runtime-config-query";
+import {
+	fetchClineProviderCatalog,
+	fetchClineProviderModels,
+	fetchWorkspaceSkills,
+} from "@/runtime/runtime-config-query";
 import type {
 	RuntimeAgentId,
 	RuntimeClineProviderCatalogItem,
 	RuntimeClineProviderModel,
 	RuntimeClineReasoningEffort,
 	RuntimeTaskClineSettings,
+	RuntimeWorkspaceSkill,
 } from "@/runtime/types";
 
 // ---------------------------------------------------------------------------
@@ -49,6 +55,7 @@ export interface UseTaskAgentModelPickerResult {
 	isLoadingModels: boolean;
 	/** Map of provider ID → its default model ID (from the provider catalog). */
 	providerDefaultModels: Record<string, string>;
+	workspaceSkills: RuntimeWorkspaceSkill[];
 }
 
 export function useTaskAgentModelPicker({
@@ -64,6 +71,7 @@ export function useTaskAgentModelPicker({
 	const [providerModels, setProviderModels] = useState<RuntimeClineProviderModel[]>([]);
 	const [isLoadingProviders, setIsLoadingProviders] = useState(false);
 	const [isLoadingModels, setIsLoadingModels] = useState(false);
+	const [workspaceSkills, setWorkspaceSkills] = useState<RuntimeWorkspaceSkill[]>([]);
 
 	// Derive the effective agent: explicit override takes precedence, then the global default
 	const effectiveAgentId = agentId ?? defaultAgentId ?? null;
@@ -126,6 +134,27 @@ export function useTaskAgentModelPicker({
 			cancelled = true;
 		};
 	}, [active, effectiveAgentId, effectiveProviderId, workspaceId]);
+
+	useEffect(() => {
+		if (!active) {
+			return;
+		}
+		let cancelled = false;
+		void fetchWorkspaceSkills(workspaceId)
+			.then((skills) => {
+				if (!cancelled) {
+					setWorkspaceSkills(skills);
+				}
+			})
+			.catch(() => {
+				if (!cancelled) {
+					setWorkspaceSkills([]);
+				}
+			});
+		return () => {
+			cancelled = true;
+		};
+	}, [active, workspaceId]);
 
 	const agentOptions = useMemo(() => {
 		const catalog = getRuntimeLaunchSupportedAgentCatalog();
@@ -204,6 +233,7 @@ export function useTaskAgentModelPicker({
 		isLoadingProviders,
 		isLoadingModels,
 		providerDefaultModels,
+		workspaceSkills,
 	};
 }
 
@@ -229,6 +259,9 @@ export function TaskAgentModelPicker({
 	onAgentIdChange,
 	clineSettings,
 	onClineSettingsChange,
+	skillNames = [],
+	onSkillNamesChange,
+	workspaceSkills = [],
 	agentOptions,
 	clineProviderOptions,
 	clineModelOptions,
@@ -246,6 +279,9 @@ export function TaskAgentModelPicker({
 	onAgentIdChange: (value: RuntimeAgentId | undefined) => void;
 	clineSettings?: RuntimeTaskClineSettings | undefined;
 	onClineSettingsChange?: (value: RuntimeTaskClineSettings | undefined) => void;
+	skillNames?: string[];
+	onSkillNamesChange?: (value: string[]) => void;
+	workspaceSkills?: RuntimeWorkspaceSkill[];
 	agentOptions: Array<{ value: string; label: string }>;
 	clineProviderOptions: Array<{ value: string; label: string }>;
 	clineModelOptions: Array<{ value: string; label: string }>;
@@ -600,6 +636,59 @@ export function TaskAgentModelPicker({
 							</div>
 						) : null}
 					</div>
+					{workspaceSkills.length > 0 ? (
+						<div className="pt-1">
+							<span className="text-[11px] text-text-secondary block mb-1">Skills</span>
+							<div className="flex flex-col gap-1">
+								{workspaceSkills.map((skill) => {
+									const checked = skillNames.includes(skill.name);
+									const isDisabled = skill.disabled;
+									const checkboxId = `task-skill-${skill.name}`;
+									return (
+										<div
+											key={skill.name}
+											className={cn("flex items-start gap-2 select-none", isDisabled && "opacity-50")}
+										>
+											<Checkbox.Root
+												id={checkboxId}
+												disabled={isDisabled}
+												checked={checked}
+												onCheckedChange={(next) => {
+													if (!onSkillNamesChange) return;
+													if (next) {
+														onSkillNamesChange([...skillNames, skill.name]);
+													} else {
+														onSkillNamesChange(skillNames.filter((n) => n !== skill.name));
+													}
+												}}
+												className="flex-shrink-0 mt-0.5 w-3.5 h-3.5 rounded-sm border border-border bg-surface-2 data-[state=checked]:bg-accent data-[state=checked]:border-accent focus:outline-none focus-visible:ring-1 focus-visible:ring-border-focus disabled:cursor-not-allowed cursor-pointer"
+											>
+												<Checkbox.Indicator className="flex items-center justify-center">
+													<Check size={10} className="text-white" />
+												</Checkbox.Indicator>
+											</Checkbox.Root>
+											<label
+												htmlFor={checkboxId}
+												className={cn(
+													"flex flex-col min-w-0",
+													isDisabled ? "cursor-not-allowed" : "cursor-pointer",
+												)}
+											>
+												<span className="text-[12px] text-text-primary leading-tight truncate">
+													{skill.name}
+												</span>
+												{skill.description ? (
+													<span className="text-[11px] text-text-secondary leading-tight">
+														{skill.description}
+													</span>
+												) : null}
+											</label>
+										</div>
+									);
+								})}
+							</div>
+						</div>
+					) : null}
 				</Collapsible.Content>
 			</Collapsible.Root>
 		</div>

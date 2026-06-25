@@ -46,6 +46,7 @@ import { resolveTaskTitle } from "../core/task-title.js";
 import { openInBrowser } from "../server/browser";
 import { buildRuntimeConfigResponse, resolveAgentCommand } from "../terminal/agent-registry";
 import type { TerminalSessionManager } from "../terminal/session-manager";
+import { injectSkillsForAgent } from "../workspace/skill-injector";
 import { resolveTaskCwd } from "../workspace/task-worktree";
 import { captureTaskTurnCheckpoint } from "../workspace/turn-checkpoints";
 import type { RuntimeTrpcContext, RuntimeTrpcWorkspaceScope } from "./app-router";
@@ -200,6 +201,19 @@ export function createRuntimeApi(deps: CreateRuntimeApiDependencies): RuntimeTrp
 					? (terminalManager.getSummary(body.taskId)?.agentId ?? null)
 					: null;
 				const effectiveAgentId = previousTerminalAgentId ?? body.agentId ?? scopedRuntimeConfig.selectedAgentId;
+
+				// Inject selected skills into the task worktree filesystem before the agent starts.
+				// Skills are copied from the workspace skill store into the worktree so agents load
+				// them lazily (on demand) without consuming context window upfront.
+				const skillNames = body.skillNames ?? [];
+				if (skillNames.length > 0 && effectiveAgentId && !isHomeAgentSessionId(body.taskId)) {
+					try {
+						await injectSkillsForAgent(effectiveAgentId, taskCwd, workspaceScope.workspacePath, skillNames);
+					} catch {
+						// Best-effort: skill injection failure should not block session start.
+					}
+				}
+
 				let useClinePath = effectiveAgentId === "cline";
 				const shouldProbePersistedClineSession =
 					body.resumeFromTrash && !useClinePath && previousTerminalAgentId === null;
