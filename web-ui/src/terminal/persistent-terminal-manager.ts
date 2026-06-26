@@ -23,6 +23,7 @@ import { isMacPlatform } from "@/utils/platform";
 
 const SHIFT_ENTER_SEQUENCE = "\n";
 const RESIZE_DEBOUNCE_MS = 50;
+const APPROX_TERMINAL_CELL_HEIGHT_PX = 16;
 const INTERRUPT_IDLE_SETTLE_MS = 250;
 const PARKING_ROOT_ID = "kb-persistent-terminal-parking-root";
 
@@ -161,6 +162,7 @@ class PersistentTerminal {
 	private restoreCompleted = false;
 	private outputTextDecoder = new TextDecoder();
 	private terminalWriteQueue: Promise<void> = Promise.resolve();
+	private removeTouchScrollListeners: (() => void) | null = null;
 	private disposed = false;
 
 	constructor(
@@ -194,6 +196,7 @@ class PersistentTerminal {
 		this.terminal.loadAddon(this.unicode11Addon);
 		this.terminal.unicode.activeVersion = "11";
 		this.terminal.open(this.hostElement);
+		this.setupTouchScrolling();
 		this.terminal.onData((data) => {
 			this.sendIoData(data);
 		});
@@ -231,6 +234,68 @@ class PersistentTerminal {
 		}
 
 		this.ensureConnected();
+	}
+
+	// xterm layers `.xterm-screen` (which captures touch for text selection) over
+	// the scrollable `.xterm-viewport`, so finger drags never scroll the buffer on
+	// their own. Translate single-finger vertical drags into buffer scrolling.
+	private setupTouchScrolling(): void {
+		const element = this.terminal.element;
+		if (!element) {
+			return;
+		}
+		let lastTouchY: number | null = null;
+		let scrollRemainderPx = 0;
+
+		const onTouchStart = (event: TouchEvent) => {
+			const touch = event.touches.length === 1 ? event.touches[0] : null;
+			if (!touch) {
+				lastTouchY = null;
+				return;
+			}
+			lastTouchY = touch.clientY;
+			scrollRemainderPx = 0;
+		};
+
+		const onTouchMove = (event: TouchEvent) => {
+			const touch = event.touches.length === 1 ? event.touches[0] : null;
+			if (lastTouchY === null || !touch) {
+				return;
+			}
+			const currentY = touch.clientY;
+			const cellHeight =
+				this.terminal.element && this.terminal.rows > 0
+					? this.terminal.element.clientHeight / this.terminal.rows
+					: APPROX_TERMINAL_CELL_HEIGHT_PX;
+			// Dragging the finger down yields a negative delta, scrolling the buffer
+			// up to reveal earlier output (natural content-tracking touch scrolling).
+			const deltaPx = lastTouchY - currentY + scrollRemainderPx;
+			const deltaRows = Math.trunc(deltaPx / cellHeight);
+			if (deltaRows !== 0) {
+				this.terminal.scrollLines(deltaRows);
+				scrollRemainderPx = deltaPx - deltaRows * cellHeight;
+			} else {
+				scrollRemainderPx = deltaPx;
+			}
+			lastTouchY = currentY;
+			event.preventDefault();
+		};
+
+		const onTouchEnd = () => {
+			lastTouchY = null;
+			scrollRemainderPx = 0;
+		};
+
+		element.addEventListener("touchstart", onTouchStart, { passive: true });
+		element.addEventListener("touchmove", onTouchMove, { passive: false });
+		element.addEventListener("touchend", onTouchEnd, { passive: true });
+		element.addEventListener("touchcancel", onTouchEnd, { passive: true });
+		this.removeTouchScrollListeners = () => {
+			element.removeEventListener("touchstart", onTouchStart);
+			element.removeEventListener("touchmove", onTouchMove);
+			element.removeEventListener("touchend", onTouchEnd);
+			element.removeEventListener("touchcancel", onTouchEnd);
+		};
 	}
 
 	private notifyLastError(): void {
@@ -685,6 +750,8 @@ class PersistentTerminal {
 			return;
 		}
 		this.disposed = true;
+		this.removeTouchScrollListeners?.();
+		this.removeTouchScrollListeners = null;
 		this.unmount(this.visibleContainer);
 		this.ioSocket?.close();
 		this.controlSocket?.close();

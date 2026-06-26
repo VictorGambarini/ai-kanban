@@ -10,6 +10,13 @@ describe("estimateTaskSessionGeometry", () => {
 		});
 	});
 
+	it("uses near-full viewport width on mobile-width viewports", () => {
+		expect(estimateTaskSessionGeometry(390, 844)).toEqual({
+			cols: 47,
+			rows: 50,
+		});
+	});
+
 	it("enforces minimum terminal dimensions", () => {
 		expect(estimateTaskSessionGeometry(100, 100)).toEqual({
 			cols: 20,

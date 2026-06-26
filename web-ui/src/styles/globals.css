@@ -930,6 +930,20 @@ body.kb-dependency-link-mode {
 	color: var(--color-accent-fg) !important;
 }
 
+/* -- Terminal touch scrolling --
+   Single-finger drags are translated into buffer scrolling in JS
+   (persistent-terminal-manager). Treat the gesture as vertical panning and keep
+   overscroll from bouncing the page behind the terminal. */
+
+.kb-terminal-container .xterm-viewport,
+.kb-terminal-container .xterm-screen {
+	touch-action: pan-y;
+}
+
+.kb-terminal-container .xterm-viewport {
+	overscroll-behavior: contain;
+}
+
 /* -- Terminal scrollbar -- */
 
 .kb-terminal-container .xterm .xterm-scrollable-element > .scrollbar.vertical {
