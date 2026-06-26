@@ -474,6 +474,19 @@ export async function createRuntimeServer(deps: CreateRuntimeServerDependencies)
 		}
 		const taggedRequest = request as IncomingMessage & { __kanbanUpgradeHandled?: boolean };
 		taggedRequest.__kanbanUpgradeHandled = true;
+		// Enforce the hub passcode gate before tunnelling to a remote host, since
+		// this interceptor runs ahead of the runtime/terminal upgrade handlers.
+		if (isRemoteMode && isPasscodeEnabled()) {
+			const sessionToken = extractSessionTokenFromCookie(request.headers.cookie);
+			const sessionAuth = sessionToken !== null && validateSession(sessionToken);
+			const bearerToken = extractBearerToken(request.headers.authorization);
+			const internalAuth = bearerToken !== null && validateInternalToken(bearerToken);
+			if (!sessionAuth && !internalAuth) {
+				socket.write("HTTP/1.1 401 Unauthorized\r\nConnection: close\r\n\r\n");
+				socket.destroy();
+				return;
+			}
+		}
 		const forwardedPort = hostsManager.getForwardedPort(hostId);
 		if (forwardedPort === null) {
 			socket.write("HTTP/1.1 502 Bad Gateway\r\nConnection: close\r\n\r\n");

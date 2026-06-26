@@ -151,8 +151,10 @@ The hub connects every registered host at startup (you can also add/connect them
 | `--ssh-port <n>` / `--runtime-port <n>` | SSH port (default 22) / remote runtime port to tunnel (default 3484). |
 | `ai-kanban hosts list` / `rm <id>` | List or remove registered hosts. |
 
+Switch hosts from the sidebar: a host selector at the top of the project panel lets you pick **Local** or any registered van (with live connection status) and add new hosts inline. Selecting a host re-scopes the whole board — projects, terminals, and diffs all come from that machine through the hub's SSH tunnel.
+
 > [!NOTE]
-> Connections, port-forwarding, remote-runtime bootstrap, the request/WebSocket proxy, host management (CLI + tRPC `hosts.*` API), and board aggregation across hosts are in place. The web UI's host switcher and single merged-board rendering are the remaining piece; until then, multi-host control is driven through the hub's API/proxy layer.
+> Multi-host control is wired end to end: SSH connections + port-forwarding, remote-runtime bootstrap, the request/WebSocket proxy, host management (CLI + tRPC `hosts.*` API + sidebar switcher), and host-namespaced board aggregation. Switching hosts scopes the entire app to the selected machine; rendering cards from *several* hosts in one combined board view (using the aggregation layer) is a possible future enhancement.
 
 ---
 

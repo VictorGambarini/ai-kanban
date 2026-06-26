@@ -1,5 +1,6 @@
 import type { RuntimeAppRouter } from "@runtime-trpc";
 import { createTRPCProxyClient, httpBatchLink, TRPCClientError } from "@trpc/client";
+import { activeHostHeaders } from "@/runtime/active-host";
 
 interface TrpcErrorDataWithConflictRevision {
 	code?: string;
@@ -20,7 +21,12 @@ export function getRuntimeTrpcClient(workspaceId: string | null): RuntimeTrpcCli
 		links: [
 			httpBatchLink({
 				url: "/api/trpc",
-				headers: () => (workspaceId ? { "x-kanban-workspace-id": workspaceId } : {}),
+				// The active host is read per-request so a single cached client keeps
+				// routing correctly to whichever host is selected.
+				headers: () => ({
+					...(workspaceId ? { "x-kanban-workspace-id": workspaceId } : {}),
+					...activeHostHeaders(),
+				}),
 			}),
 		],
 	});
@@ -30,6 +36,23 @@ export function getRuntimeTrpcClient(workspaceId: string | null): RuntimeTrpcCli
 
 export function createWorkspaceTrpcClient(workspaceId: string): RuntimeTrpcClient {
 	return getRuntimeTrpcClient(workspaceId);
+}
+
+let hubTrpcClient: RuntimeTrpcClient | null = null;
+
+/**
+ * A client that always targets the hub itself, never a remote host. Use this for
+ * host management (`hosts.*`) so the switcher stays usable even while a remote
+ * host is the active scope.
+ */
+export function getHubTrpcClient(): RuntimeTrpcClient {
+	if (hubTrpcClient) {
+		return hubTrpcClient;
+	}
+	hubTrpcClient = createTRPCProxyClient<RuntimeAppRouter>({
+		links: [httpBatchLink({ url: "/api/trpc", headers: () => ({}) })],
+	});
+	return hubTrpcClient;
 }
 
 function readTrpcErrorData(error: TRPCClientError<RuntimeAppRouter>): TrpcErrorDataWithConflictRevision | null {
