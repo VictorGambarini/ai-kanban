@@ -9,6 +9,7 @@ import packageJson from "../package.json" with { type: "json" };
 import { type PasscodeOption, parseCliPasscodeValue, resolvePasscodeOption } from "./cli-passcode-options";
 import { disposeCliTelemetryService } from "./cline-sdk/cline-telemetry-service.js";
 import { registerHooksCommand } from "./commands/hooks";
+import { registerHostsCommand } from "./commands/hosts";
 import { registerTaskCommand } from "./commands/task";
 import { loadGlobalRuntimeConfig, loadRuntimeConfig } from "./config/runtime-config";
 import type { RuntimeCommandRunResponse } from "./core/api-contract";
@@ -752,6 +753,7 @@ function createProgram(invocationArgs: string[]): Command {
 
 	registerTaskCommand(program);
 	registerHooksCommand(program);
+	registerHostsCommand(program);
 
 	program
 		.command("mcp")

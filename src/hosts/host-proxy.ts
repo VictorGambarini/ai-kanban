@@ -1,5 +1,6 @@
 import { request as httpRequest, type IncomingMessage, type ServerResponse } from "node:http";
-import { connect as netConnect, type Socket } from "node:net";
+import { connect as netConnect } from "node:net";
+import type { Duplex } from "node:stream";
 
 const LOOPBACK = "127.0.0.1";
 
@@ -85,7 +86,7 @@ function serializeRequestHead(req: IncomingMessage, targetPort: number): string 
  */
 export function proxyWebSocketUpgrade(
 	req: IncomingMessage,
-	clientSocket: Socket,
+	clientSocket: Duplex,
 	head: Buffer,
 	targetPort: number,
 ): void {

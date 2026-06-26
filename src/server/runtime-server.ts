@@ -24,6 +24,8 @@ import {
 	getKanbanRuntimeTls,
 	isKanbanRemoteHost,
 } from "../core/runtime-endpoint";
+import { isLocalHostId, proxyHttpRequest, proxyWebSocketUpgrade, readHostIdFromRequest } from "../hosts/host-proxy";
+import { HostsManager } from "../hosts/hosts-manager";
 import {
 	checkRateLimit,
 	clearRateLimit,
@@ -41,6 +43,7 @@ import type { TerminalSessionManager } from "../terminal/session-manager";
 import { createTerminalWebSocketBridge } from "../terminal/ws-server";
 import { type RuntimeTrpcContext, type RuntimeTrpcWorkspaceScope, runtimeAppRouter } from "../trpc/app-router";
 import { createHooksApi } from "../trpc/hooks-api";
+import { createHostsApi } from "../trpc/hosts-api";
 import { createProjectsApi } from "../trpc/projects-api";
 import { createRuntimeApi } from "../trpc/runtime-api";
 import { createWorkspaceApi } from "../trpc/workspace-api";
@@ -108,6 +111,10 @@ export async function createRuntimeServer(deps: CreateRuntimeServerDependencies)
 	} catch {
 		throw new Error("Could not find web UI assets. Run `npm run build` to generate and package the web UI.");
 	}
+
+	// Manages SSH connections + forwarded ports to remote hosts ("vans"). The
+	// hub proxies host-scoped API/WS traffic to a host's forwarded loopback port.
+	const hostsManager = new HostsManager({ warn: deps.warn });
 
 	const resolveWorkspaceScopeFromRequest = async (
 		request: IncomingMessage,
@@ -246,6 +253,7 @@ export async function createRuntimeServer(deps: CreateRuntimeServerDependencies)
 				broadcastRuntimeWorkspaceStateUpdated: deps.runtimeStateHub.broadcastRuntimeWorkspaceStateUpdated,
 				broadcastTaskReadyForReview: deps.runtimeStateHub.broadcastTaskReadyForReview,
 			}),
+			hostsApi: createHostsApi({ hostsManager }),
 		};
 	};
 
@@ -389,6 +397,28 @@ export async function createRuntimeServer(deps: CreateRuntimeServerDependencies)
 			}
 			// ── End passcode gate ──────────────────────────────────────────────
 
+			// ── Remote host proxy ──────────────────────────────────────────────
+			// Host-scoped API traffic is forwarded to the selected van's runtime
+			// over its SSH-tunnelled loopback port. Unscoped requests (hostId
+			// "local" or absent) are served by this hub as usual.
+			if (pathname.startsWith("/api/")) {
+				const hostId = readHostIdFromRequest(req, requestUrl);
+				if (!isLocalHostId(hostId)) {
+					const forwardedPort = hostsManager.getForwardedPort(hostId);
+					if (forwardedPort === null) {
+						res.writeHead(502, {
+							"Content-Type": "application/json; charset=utf-8",
+							"Cache-Control": "no-store",
+						});
+						res.end('{"error":"Remote host is not connected."}');
+						return;
+					}
+					proxyHttpRequest(req, res, forwardedPort);
+					return;
+				}
+			}
+			// ── End remote host proxy ──────────────────────────────────────────
+
 			const oauthCallbackResponse = await handleClineMcpOauthCallback(requestUrl);
 			if (oauthCallbackResponse) {
 				res.writeHead(oauthCallbackResponse.statusCode, {
@@ -422,7 +452,41 @@ export async function createRuntimeServer(deps: CreateRuntimeServerDependencies)
 	const server = tlsConfig
 		? createHttpsServer({ key: tlsConfig.key, cert: tlsConfig.cert }, requestHandler)
 		: createServer(requestHandler);
+
+	// ── Remote host WebSocket proxy ──────────────────────────────────────────
+	// Registered before the runtime/terminal upgrade handlers so host-scoped
+	// upgrades (terminal IO/control, runtime stream) are tunnelled to the van
+	// before the local handlers claim them. Marks the request handled so the
+	// downstream listeners bail.
 	server.on("upgrade", (request, socket, head) => {
+		let proxyUrl: URL;
+		try {
+			proxyUrl = new URL(request.url ?? "/", getKanbanRuntimeOrigin());
+		} catch {
+			return;
+		}
+		if (!normalizeRequestPath(proxyUrl.pathname).startsWith("/api/")) {
+			return;
+		}
+		const hostId = readHostIdFromRequest(request, proxyUrl);
+		if (isLocalHostId(hostId)) {
+			return;
+		}
+		const taggedRequest = request as IncomingMessage & { __kanbanUpgradeHandled?: boolean };
+		taggedRequest.__kanbanUpgradeHandled = true;
+		const forwardedPort = hostsManager.getForwardedPort(hostId);
+		if (forwardedPort === null) {
+			socket.write("HTTP/1.1 502 Bad Gateway\r\nConnection: close\r\n\r\n");
+			socket.destroy();
+			return;
+		}
+		proxyWebSocketUpgrade(request, socket, head, forwardedPort);
+	});
+
+	server.on("upgrade", (request, socket, head) => {
+		if ((request as IncomingMessage & { __kanbanUpgradeHandled?: boolean }).__kanbanUpgradeHandled) {
+			return;
+		}
 		if (handleSocketUpgrade(request, socket).end) {
 			return;
 		}
@@ -488,6 +552,12 @@ export async function createRuntimeServer(deps: CreateRuntimeServerDependencies)
 	if (!address || typeof address === "string") {
 		throw new Error("Failed to start local server.");
 	}
+
+	// Connect any previously-registered remote hosts in the background. Failures
+	// surface as per-host status; they never block the hub from starting.
+	void hostsManager.start().catch((error) => {
+		deps.warn(`Failed to start remote hosts: ${error instanceof Error ? error.message : String(error)}`);
+	});
 	const activeWorkspaceId = deps.workspaceRegistry.getActiveWorkspaceId();
 	const url = activeWorkspaceId
 		? buildKanbanRuntimeUrl(`/${encodeURIComponent(activeWorkspaceId)}`)
@@ -496,6 +566,7 @@ export async function createRuntimeServer(deps: CreateRuntimeServerDependencies)
 	return {
 		url,
 		close: async () => {
+			hostsManager.disconnectAll();
 			await Promise.all(
 				Array.from(clineTaskSessionServiceByWorkspaceId.values()).map(async (service) => {
 					await service.dispose();

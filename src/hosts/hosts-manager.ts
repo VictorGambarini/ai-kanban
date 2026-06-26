@@ -9,6 +9,7 @@ import type {
 	RegisterRemoteHostInput,
 	RemoteHost,
 	RemoteHostConnectionStatus,
+	RemoteHostSummary,
 	UpdateRemoteHostInput,
 } from "./host-types";
 import {
@@ -53,6 +54,12 @@ export class HostsManager {
 
 	listHosts(): Promise<RemoteHost[]> {
 		return listRemoteHosts();
+	}
+
+	/** Hosts paired with their live connection status, for the UI. */
+	async listSummaries(): Promise<RemoteHostSummary[]> {
+		const hosts = await listRemoteHosts();
+		return hosts.map((host) => ({ host, status: this.connectionManager.getStatus(host.id) }));
 	}
 
 	getHost(hostId: string): Promise<RemoteHost | null> {

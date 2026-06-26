@@ -121,4 +121,39 @@ Restart=on-failure
 
 ---
 
+## Controlling remote agents over SSH (multi-host)
+
+You can run agents on several remote machines ("vans" — VMs, home servers, Tailscale nodes) and drive them from one **hub**. Each van runs its own loopback-bound `ai-kanban` runtime; the hub holds an SSH connection to each van, forwards a local port to that runtime, and proxies host-scoped API/terminal traffic to it. The vans never need to be reachable from your browser — only over SSH from the hub.
+
+Each van's agents run on the van, where its worktrees, git, diffs, and hooks already work locally. The hub is just the control plane.
+
+Register hosts on the hub:
+
+```bash
+# Key-file auth
+ai-kanban hosts add --label van-one --ssh-host 10.0.0.5 --user agent --identity ~/.ssh/id_ed25519
+
+# SSH-agent auth, custom SSH + runtime ports
+ai-kanban hosts add --ssh-host van-two.tailnet.ts.net --user agent --use-agent --ssh-port 2222 --runtime-port 3484
+
+ai-kanban hosts list
+ai-kanban hosts rm van-one
+```
+
+The hub connects every registered host at startup (you can also add/connect them live from the UI). When a connection comes up, the hub ensures `ai-kanban` is running on the van — launching it loopback-bound with `--no-passcode` if needed — so install it on each van first (`npm i -g @victorgambarini/ai-kanban`). Secrets are never stored: a private key is referenced by **path**, and any key passphrase is read from an env var you name (`--passphrase-env`), not written to the registry.
+
+| Command / flag | Description |
+| --- | --- |
+| `ai-kanban hosts add` | Register a remote host. Requires `--ssh-host` and `--user`. |
+| `--identity <path>` | Private key file (contents never stored). |
+| `--use-agent` | Authenticate via the local SSH agent (`SSH_AUTH_SOCK`). |
+| `--passphrase-env <name>` | Env var holding the key passphrase (value never stored). |
+| `--ssh-port <n>` / `--runtime-port <n>` | SSH port (default 22) / remote runtime port to tunnel (default 3484). |
+| `ai-kanban hosts list` / `rm <id>` | List or remove registered hosts. |
+
+> [!NOTE]
+> Connections, port-forwarding, remote-runtime bootstrap, the request/WebSocket proxy, host management (CLI + tRPC `hosts.*` API), and board aggregation across hosts are in place. The web UI's host switcher and single merged-board rendering are the remaining piece; until then, multi-host control is driven through the hub's API/proxy layer.
+
+---
+
 [Apache 2.0 © 2026 Cline Bot Inc.](./LICENSE)

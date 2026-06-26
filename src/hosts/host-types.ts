@@ -101,6 +101,51 @@ export interface UpdateRemoteHostInput {
 /** Lifecycle state of an SSH connection + its forwarded port. */
 export type RemoteHostConnectionState = "disconnected" | "connecting" | "connected" | "error";
 
+export const remoteHostConnectionStateSchema = z.enum(["disconnected", "connecting", "connected", "error"]);
+
+export const remoteHostConnectionStatusSchema = z.object({
+	hostId: z.string(),
+	state: remoteHostConnectionStateSchema,
+	localPort: z.number().int().nullable(),
+	error: z.string().nullable(),
+	updatedAt: z.number(),
+});
+
+/** A host plus its current connection status, as returned to the UI. */
+export const remoteHostSummarySchema = z.object({
+	host: remoteHostSchema,
+	status: remoteHostConnectionStatusSchema.nullable(),
+});
+export type RemoteHostSummary = z.infer<typeof remoteHostSummarySchema>;
+
+export const registerRemoteHostInputSchema = z.object({
+	label: z.string().min(1, "Host label cannot be empty."),
+	ssh: z.object({
+		hostname: z.string().min(1, "SSH hostname cannot be empty."),
+		port: z.number().int().min(1).max(65535).optional(),
+		username: z.string().min(1, "SSH username cannot be empty."),
+		privateKeyPath: z.string().min(1).optional(),
+		useAgent: z.boolean().optional(),
+		passphraseEnv: z.string().min(1).optional(),
+	}),
+	runtimePort: z.number().int().min(1).max(65535).optional(),
+});
+
+export const updateRemoteHostInputSchema = z.object({
+	label: z.string().min(1).optional(),
+	ssh: z
+		.object({
+			hostname: z.string().min(1).optional(),
+			port: z.number().int().min(1).max(65535).optional(),
+			username: z.string().min(1).optional(),
+			privateKeyPath: z.string().min(1).optional(),
+			useAgent: z.boolean().optional(),
+			passphraseEnv: z.string().min(1).optional(),
+		})
+		.optional(),
+	runtimePort: z.number().int().min(1).max(65535).optional(),
+});
+
 export interface RemoteHostConnectionStatus {
 	hostId: string;
 	state: RemoteHostConnectionState;
