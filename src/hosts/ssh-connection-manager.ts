@@ -3,7 +3,12 @@ import { createServer, type Server, type Socket } from "node:net";
 
 import { type Client, type ClientChannel, type ConnectConfig, Client as Ssh2Client } from "ssh2";
 
-import type { RemoteHost, RemoteHostConnectionState, RemoteHostConnectionStatus } from "./host-types";
+import type {
+	RemoteCommandResult,
+	RemoteHost,
+	RemoteHostConnectionState,
+	RemoteHostConnectionStatus,
+} from "./host-types";
 
 const LOOPBACK = "127.0.0.1";
 const KEEPALIVE_INTERVAL_MS = 15_000;
@@ -101,6 +106,39 @@ export class RemoteHostConnection {
 		return () => {
 			this.statusListeners.delete(listener);
 		};
+	}
+
+	/**
+	 * Run a single command on the remote host over the live SSH connection.
+	 * Rejects if the connection is not currently established.
+	 */
+	exec(command: string): Promise<RemoteCommandResult> {
+		const client = this.client;
+		if (!client || this.state !== "connected") {
+			return Promise.reject(new Error(`Host "${this.host.id}" is not connected.`));
+		}
+		return new Promise<RemoteCommandResult>((resolve, reject) => {
+			client.exec(command, (err: Error | undefined, channel: ClientChannel) => {
+				if (err) {
+					reject(err);
+					return;
+				}
+				let stdout = "";
+				let stderr = "";
+				channel.on("data", (chunk: Buffer) => {
+					stdout += chunk.toString("utf8");
+				});
+				channel.stderr.on("data", (chunk: Buffer) => {
+					stderr += chunk.toString("utf8");
+				});
+				channel.on("close", (code: number | null, signal: string | null) => {
+					resolve({ code: code ?? null, signal: signal ?? null, stdout, stderr });
+				});
+				channel.on("error", (channelError: Error) => {
+					reject(channelError);
+				});
+			});
+		});
 	}
 
 	/** Begin connecting (idempotent). Safe to call after a previous {@link disconnect}. */

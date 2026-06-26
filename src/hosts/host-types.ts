@@ -110,3 +110,11 @@ export interface RemoteHostConnectionStatus {
 	error: string | null;
 	updatedAt: number;
 }
+
+/** Result of running a single command on a remote host over SSH. */
+export interface RemoteCommandResult {
+	code: number | null;
+	signal: string | null;
+	stdout: string;
+	stderr: string;
+}
