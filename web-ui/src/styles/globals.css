@@ -930,6 +930,19 @@ body.kb-dependency-link-mode {
 	color: var(--color-accent-fg) !important;
 }
 
+/* -- Terminal touch scrolling --
+   Single-finger drags are replayed as wheel events in JS
+   (persistent-terminal-manager). `touch-action: none` hands the gesture fully to
+   that handler instead of letting the browser claim a native pan the terminal
+   can't perform, and `overscroll-behavior` keeps drags from bouncing the page
+   behind the terminal. */
+
+.kb-terminal-container .xterm-screen,
+.kb-terminal-container .xterm-scrollable-element {
+	touch-action: none;
+	overscroll-behavior: contain;
+}
+
 /* -- Terminal scrollbar -- */
 
 .kb-terminal-container .xterm .xterm-scrollable-element > .scrollbar.vertical {

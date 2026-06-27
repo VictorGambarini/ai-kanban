@@ -1,5 +1,10 @@
 # Changelog
 
+## [0.1.70]
+
+- Fixed the Claude Code agent terminal on mobile: its output no longer wraps to a narrow column and now uses the full screen width
+- Fixed touch scrolling in the agent terminal on mobile — a single-finger drag now scrolls the buffer, including full-screen TUIs like Claude Code that previously couldn't be scrolled by touch at all
+
 ## [0.1.69]
 
 - Skills now have their own top-level section in Settings instead of being nested under Project
