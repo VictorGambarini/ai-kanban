@@ -21,6 +21,7 @@ import {
 	Plus,
 	Settings,
 	SlidersHorizontal,
+	Sparkles,
 	X,
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -37,6 +38,7 @@ import { Button } from "@/components/ui/button";
 import { cn } from "@/components/ui/cn";
 import { Dialog, DialogFooter, DialogHeader } from "@/components/ui/dialog";
 import { NativeSelect } from "@/components/ui/native-select";
+import { WorkspaceSkillsPanel } from "@/components/workspace-skills-panel";
 import { TASK_GIT_BASE_REF_PROMPT_VARIABLE, type TaskGitAction } from "@/git-actions/build-task-git-action-prompt";
 import { useRuntimeSettingsClineController } from "@/hooks/use-runtime-settings-cline-controller";
 import { useRuntimeSettingsClineMcpController } from "@/hooks/use-runtime-settings-cline-mcp-controller";
@@ -94,7 +96,7 @@ export type RuntimeSettingsSection = "shortcuts";
 
 const SETTINGS_AGENT_ORDER: readonly RuntimeAgentId[] = ["cline", "claude", "codex", "droid", "kiro"];
 
-type SettingsNavId = "general" | "cline" | "git-prompts" | "notifications" | "appearance" | "project";
+type SettingsNavId = "general" | "cline" | "git-prompts" | "notifications" | "appearance" | "project" | "skills";
 
 const SETTINGS_NAV_ITEMS: ReadonlyArray<{
 	id: SettingsNavId;
@@ -108,6 +110,7 @@ const SETTINGS_NAV_ITEMS: ReadonlyArray<{
 	{ id: "notifications", label: "Notifications", icon: <Bell size={16} /> },
 	{ id: "appearance", label: "Appearance", icon: <Palette size={16} /> },
 	{ id: "project", label: "Project", icon: <FolderOpen size={16} /> },
+	{ id: "skills", label: "Skills", icon: <Sparkles size={16} /> },
 ];
 
 function getShortcutIconOption(icon: string | undefined): RuntimeShortcutIconOption {
@@ -1164,6 +1167,17 @@ export function RuntimeSettingsDialog({
 							<span className="text-text-primary">{saveError}</span>
 						</div>
 					) : null}
+
+					<div data-settings-section="skills" />
+					<div className="sticky top-0 -mx-5 px-5 pt-4 pb-2 bg-surface-1 z-10">
+						<h2 className="flex items-center gap-2 text-base font-semibold text-text-primary m-0">
+							<Sparkles size={16} className="text-text-secondary" />
+							Skills
+						</h2>
+					</div>
+					<div className="rounded-lg border border-border bg-surface-0 px-4 py-3">
+						<WorkspaceSkillsPanel workspaceId={workspaceId} />
+					</div>
 				</div>
 			</div>
 			<DialogFooter>

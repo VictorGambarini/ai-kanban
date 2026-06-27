@@ -129,6 +129,38 @@ function normalizeRuntimeTaskClineSettings(input: {
 	};
 }
 
+export const runtimeWorkspaceSkillSchema = z.object({
+	name: z.string(),
+	description: z.string().optional(),
+	disabled: z.boolean(),
+	dirPath: z.string(),
+	/** Source slug the skill was installed from, e.g. "anthropics/skills". Absent for locally-created skills. */
+	installedFrom: z.string().optional(),
+	/** ISO timestamp recorded when the skill was installed via Kanban. */
+	installedAt: z.string().optional(),
+});
+export type RuntimeWorkspaceSkill = z.infer<typeof runtimeWorkspaceSkillSchema>;
+
+/**
+ * Normalizes a skill install source into a GitHub-style `owner/repo` slug plus an
+ * optional specific skill name. Accepts skills.sh URLs (`https://www.skills.sh/owner/repo[/skill]`),
+ * GitHub URLs (`https://github.com/owner/repo`), and bare `owner/repo` slugs.
+ */
+export function parseSkillsShSource(input: string): { repo: string; skill?: string } {
+	const trimmed = input.trim();
+	const urlMatch = trimmed.match(/^https?:\/\/(?:www\.)?(?:skills\.sh|github\.com)\/(.+)$/i);
+	const path = (urlMatch?.[1] ?? trimmed)
+		.replace(/[?#].*$/, "")
+		.replace(/^\/+|\/+$/g, "")
+		.replace(/\.git$/i, "");
+	const segments = path.split("/").filter(Boolean);
+	const [owner, repo, skill] = segments;
+	if (!owner || !repo) {
+		return { repo: trimmed };
+	}
+	return skill ? { repo: `${owner}/${repo}`, skill } : { repo: `${owner}/${repo}` };
+}
+
 export const runtimeBoardCardSchema = z
 	.object({
 		id: z.string(),
@@ -140,6 +172,7 @@ export const runtimeBoardCardSchema = z
 		images: z.array(runtimeTaskImageSchema).optional(),
 		agentId: runtimeAgentIdSchema.optional(),
 		clineSettings: runtimeTaskClineSettingsSchema.optional(),
+		skillNames: z.array(z.string()).optional(),
 		clineProviderId: z.string().optional(),
 		clineModelId: z.string().optional(),
 		clineReasoningEffort: runtimeLegacyTaskClineReasoningEffortSchema.optional(),
@@ -983,6 +1016,7 @@ export const runtimeTaskSessionStartRequestSchema = z.object({
 	rows: z.number().int().positive().optional(),
 	agentId: runtimeAgentIdSchema.optional(),
 	clineSettings: runtimeTaskClineSettingsSchema.optional(),
+	skillNames: z.array(z.string()).optional(),
 });
 export type RuntimeTaskSessionStartRequest = z.infer<typeof runtimeTaskSessionStartRequestSchema>;
 

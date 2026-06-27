@@ -33,6 +33,13 @@ import {
 	getTaskWorkspaceInfo,
 	resolveTaskCwd,
 } from "../workspace/task-worktree";
+import {
+	createSkill,
+	installSkill,
+	listSkills,
+	removeSkill,
+	setSkillDisabled,
+} from "../workspace/workspace-skill-service";
 import type { RuntimeTrpcContext } from "./app-router";
 
 export interface CreateWorkspaceApiDependencies {
@@ -436,6 +443,37 @@ export function createWorkspaceApi(deps: CreateWorkspaceApiDependencies): Runtim
 				cwd: diffCwd,
 				commitHash: input.commitHash,
 			});
+		},
+		skillsList: async (workspaceScope) => {
+			return await listSkills(workspaceScope.workspacePath);
+		},
+		skillsInstall: async (workspaceScope, input: { source: string; skills?: string[] }) => {
+			const source = input.source.trim();
+			if (!source) {
+				throw new TRPCError({ code: "BAD_REQUEST", message: "source is required" });
+			}
+			await installSkill(workspaceScope.workspacePath, source, input.skills);
+			return { ok: true };
+		},
+		skillsCreate: async (workspaceScope, input: { name: string; description?: string; instructions: string }) => {
+			const name = input.name.trim();
+			if (!name) {
+				throw new TRPCError({ code: "BAD_REQUEST", message: "name is required" });
+			}
+			await createSkill(workspaceScope.workspacePath, {
+				name,
+				description: input.description?.trim() || undefined,
+				instructions: input.instructions,
+			});
+			return { ok: true };
+		},
+		skillsRemove: async (workspaceScope, input: { name: string }) => {
+			await removeSkill(workspaceScope.workspacePath, input.name);
+			return { ok: true };
+		},
+		skillsSetDisabled: async (workspaceScope, input: { name: string; disabled: boolean }) => {
+			await setSkillDisabled(workspaceScope.workspacePath, input.name, input.disabled);
+			return { ok: true };
 		},
 	};
 }

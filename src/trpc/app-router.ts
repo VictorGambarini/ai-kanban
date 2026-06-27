@@ -88,6 +88,7 @@ import type {
 	RuntimeWorkspaceChangesResponse,
 	RuntimeWorkspaceFileSearchRequest,
 	RuntimeWorkspaceFileSearchResponse,
+	RuntimeWorkspaceSkill,
 	RuntimeWorkspaceStateNotifyResponse,
 	RuntimeWorkspaceStateResponse,
 	RuntimeWorkspaceStateSaveRequest,
@@ -350,6 +351,20 @@ export interface RuntimeTrpcContext {
 			scope: RuntimeTrpcWorkspaceScope,
 			input: RuntimeGitCommitDiffRequest,
 		) => Promise<RuntimeGitCommitDiffResponse>;
+		skillsList: (scope: RuntimeTrpcWorkspaceScope) => Promise<RuntimeWorkspaceSkill[]>;
+		skillsInstall: (
+			scope: RuntimeTrpcWorkspaceScope,
+			input: { source: string; skills?: string[] },
+		) => Promise<{ ok: boolean }>;
+		skillsCreate: (
+			scope: RuntimeTrpcWorkspaceScope,
+			input: { name: string; description?: string; instructions: string },
+		) => Promise<{ ok: boolean }>;
+		skillsRemove: (scope: RuntimeTrpcWorkspaceScope, input: { name: string }) => Promise<{ ok: boolean }>;
+		skillsSetDisabled: (
+			scope: RuntimeTrpcWorkspaceScope,
+			input: { name: string; disabled: boolean },
+		) => Promise<{ ok: boolean }>;
 	};
 	projectsApi: {
 		listProjects: (preferredWorkspaceId: string | null) => Promise<RuntimeProjectsResponse>;
@@ -688,6 +703,27 @@ export const runtimeAppRouter = t.router({
 			.output(runtimeGitCommitDiffResponseSchema)
 			.query(async ({ ctx, input }) => {
 				return await ctx.workspaceApi.loadCommitDiff(ctx.workspaceScope, input);
+			}),
+		skillsList: workspaceProcedure.query(async ({ ctx }) => {
+			return await ctx.workspaceApi.skillsList(ctx.workspaceScope);
+		}),
+		skillsInstall: workspaceProcedure
+			.input(z.object({ source: z.string(), skills: z.array(z.string()).optional() }))
+			.mutation(async ({ ctx, input }) => {
+				return await ctx.workspaceApi.skillsInstall(ctx.workspaceScope, input);
+			}),
+		skillsCreate: workspaceProcedure
+			.input(z.object({ name: z.string(), description: z.string().optional(), instructions: z.string() }))
+			.mutation(async ({ ctx, input }) => {
+				return await ctx.workspaceApi.skillsCreate(ctx.workspaceScope, input);
+			}),
+		skillsRemove: workspaceProcedure.input(z.object({ name: z.string() })).mutation(async ({ ctx, input }) => {
+			return await ctx.workspaceApi.skillsRemove(ctx.workspaceScope, input);
+		}),
+		skillsSetDisabled: workspaceProcedure
+			.input(z.object({ name: z.string(), disabled: z.boolean() }))
+			.mutation(async ({ ctx, input }) => {
+				return await ctx.workspaceApi.skillsSetDisabled(ctx.workspaceScope, input);
 			}),
 	}),
 	projects: t.router({

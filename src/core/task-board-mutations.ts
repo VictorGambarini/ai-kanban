@@ -21,6 +21,7 @@ export interface RuntimeCreateTaskInput {
 	images?: RuntimeTaskImage[];
 	agentId?: RuntimeAgentId;
 	clineSettings?: RuntimeTaskClineSettings;
+	skillNames?: string[];
 	baseRef: string;
 }
 
@@ -33,6 +34,7 @@ export interface RuntimeUpdateTaskInput {
 	images?: RuntimeTaskImage[];
 	agentId?: RuntimeAgentId | null;
 	clineSettings?: RuntimeTaskClineSettings | null;
+	skillNames?: string[] | null;
 	baseRef: string;
 }
 
@@ -59,6 +61,14 @@ function cloneTaskClineSettings(settings?: RuntimeTaskClineSettings | null): Run
 		...(modelId ? { modelId } : {}),
 		...(settings.reasoningEffort ? { reasoningEffort: settings.reasoningEffort } : {}),
 	};
+}
+
+// Copy skill names so board tasks do not retain caller-owned array references.
+function cloneTaskSkillNames(skillNames?: string[] | null): string[] | undefined {
+	if (!skillNames || skillNames.length === 0) {
+		return undefined;
+	}
+	return [...skillNames];
 }
 
 export interface RuntimeCreateTaskResult {
@@ -309,6 +319,7 @@ export function addTaskToColumn(
 		images: cloneTaskImages(input.images),
 		...(input.agentId ? { agentId: input.agentId } : {}),
 		...(input.clineSettings !== undefined ? { clineSettings: cloneTaskClineSettings(input.clineSettings) } : {}),
+		...(cloneTaskSkillNames(input.skillNames) ? { skillNames: cloneTaskSkillNames(input.skillNames) } : {}),
 		baseRef,
 		createdAt: now,
 		updatedAt: now,
@@ -630,6 +641,12 @@ export function updateTask(
 						: input.clineSettings === null
 							? undefined
 							: cloneTaskClineSettings(input.clineSettings),
+				skillNames:
+					input.skillNames === undefined
+						? cloneTaskSkillNames(card.skillNames)
+						: input.skillNames === null
+							? undefined
+							: cloneTaskSkillNames(input.skillNames),
 				baseRef,
 				updatedAt: now,
 			};

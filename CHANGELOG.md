@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.1.69]
+
+- Skills now have their own top-level section in Settings instead of being nested under Project
+- Installed skills are grouped by their source collection (e.g. `anthropics/skills`) in collapsible groups, both in Settings and in a task's skill picker, so large skill lists stay navigable
+- Recently-installed skills show a "NEW" badge for 48 hours
+- Install skills directly from a skills.sh URL; when the URL points to a specific skill, you can choose to install just that skill or its whole collection
+- Enable/disable a whole skill group at once in Settings, and select/deselect a whole group at once when picking skills for a task
+- Per-task skill selection now uses toggles instead of hard-to-see checkboxes, hides skills you've disabled in Settings, and shows full skill descriptions in a wrapped tooltip
+- Toggling and deleting skills in Settings is now optimistic, so it feels instant instead of freezing while the skills list reloads
+- Injected and installed skill files no longer clutter task diffs — they're added to the repo's git exclude (untracked-only, so skills you track yourself are unaffected)
+- For Claude Code tasks, your personal and bundled skills are hidden for the run (via project-scoped `skillOverrides` + `disableBundledSkills`) so only the skills you selected are visible. Marketplace plugin skills can't be scoped this way and still appear. For Cline, the task worktree contains only your selected skills (Cline offers no per-run knob to hide globally-installed skills)
+- New tasks now start with the skills you selected on your previous task in that workspace, instead of an empty list
+- In a task's skill picker, skills you use most often are ordered first within each group
+
 ## [0.1.68]
 
 - Codex hooks are now pre-trusted, eliminating permission prompts when Kanban manages Codex sessions
