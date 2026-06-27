@@ -236,9 +236,16 @@ class PersistentTerminal {
 		this.ensureConnected();
 	}
 
-	// xterm layers `.xterm-screen` (which captures touch for text selection) over
-	// the scrollable `.xterm-viewport`, so finger drags never scroll the buffer on
-	// their own. Translate single-finger vertical drags into buffer scrolling.
+	// xterm has no touch scrolling of its own, and the two buffers scroll by
+	// completely different mechanisms, so a single-finger drag has to be routed to
+	// the right one:
+	//   - Normal buffer (a shell): scroll xterm's own scrollback via `scrollLines`.
+	//   - Alternate buffer (a full-screen TUI like Claude Code): there is no
+	//     scrollback, so `scrollLines` is inert. These apps enable mouse tracking
+	//     and scroll in response to wheel input, so we replay the drag as a `wheel`
+	//     on `.xterm-screen` — xterm forwards it to the app as the exact same mouse
+	//     sequence a desktop wheel produces. (Synthetic wheels do not drive xterm's
+	//     own scrollback, which is why the normal buffer still uses `scrollLines`.)
 	private setupTouchScrolling(): void {
 		const element = this.terminal.element;
 		if (!element) {
@@ -249,11 +256,7 @@ class PersistentTerminal {
 
 		const onTouchStart = (event: TouchEvent) => {
 			const touch = event.touches.length === 1 ? event.touches[0] : null;
-			if (!touch) {
-				lastTouchY = null;
-				return;
-			}
-			lastTouchY = touch.clientY;
+			lastTouchY = touch ? touch.clientY : null;
 			scrollRemainderPx = 0;
 		};
 
@@ -262,22 +265,39 @@ class PersistentTerminal {
 			if (lastTouchY === null || !touch) {
 				return;
 			}
-			const currentY = touch.clientY;
-			const cellHeight =
-				this.terminal.element && this.terminal.rows > 0
-					? this.terminal.element.clientHeight / this.terminal.rows
-					: APPROX_TERMINAL_CELL_HEIGHT_PX;
-			// Dragging the finger down yields a negative delta, scrolling the buffer
-			// up to reveal earlier output (natural content-tracking touch scrolling).
-			const deltaPx = lastTouchY - currentY + scrollRemainderPx;
-			const deltaRows = Math.trunc(deltaPx / cellHeight);
-			if (deltaRows !== 0) {
-				this.terminal.scrollLines(deltaRows);
-				scrollRemainderPx = deltaPx - deltaRows * cellHeight;
-			} else {
-				scrollRemainderPx = deltaPx;
+			// Finger moving down yields a negative delta — scrolling up to reveal
+			// earlier output (natural content-tracking touch scrolling). This matches
+			// the sign of both a wheel's deltaY and `scrollLines`.
+			const deltaY = lastTouchY - touch.clientY;
+			lastTouchY = touch.clientY;
+			if (deltaY === 0) {
+				return;
 			}
-			lastTouchY = currentY;
+
+			if (this.terminal.buffer.active.type === "alternate") {
+				const screen = element.querySelector(".xterm-screen") ?? element;
+				screen.dispatchEvent(
+					new WheelEvent("wheel", {
+						deltaY,
+						deltaMode: WheelEvent.DOM_DELTA_PIXEL,
+						clientX: touch.clientX,
+						clientY: touch.clientY,
+						bubbles: true,
+						cancelable: true,
+					}),
+				);
+			} else {
+				const cellHeight =
+					this.terminal.rows > 0 ? element.clientHeight / this.terminal.rows : APPROX_TERMINAL_CELL_HEIGHT_PX;
+				const totalPx = deltaY + scrollRemainderPx;
+				const deltaRows = Math.trunc(totalPx / cellHeight);
+				if (deltaRows !== 0) {
+					this.terminal.scrollLines(deltaRows);
+					scrollRemainderPx = totalPx - deltaRows * cellHeight;
+				} else {
+					scrollRemainderPx = totalPx;
+				}
+			}
 			event.preventDefault();
 		};
 
