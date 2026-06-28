@@ -1,5 +1,5 @@
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
-import { Check, ChevronsUpDown, Monitor, Plus, Server, Trash2 } from "lucide-react";
+import { Check, ChevronsUpDown, Monitor, Pencil, Plus, Server, Trash2 } from "lucide-react";
 import { type FormEvent, useState } from "react";
 
 import { notifyError } from "@/components/app-toaster";
@@ -8,7 +8,7 @@ import { cn } from "@/components/ui/cn";
 import { Dialog, DialogBody, DialogFooter, DialogHeader } from "@/components/ui/dialog";
 import { Spinner } from "@/components/ui/spinner";
 import { getActiveHostId, LOCAL_HOST_ID, setActiveHostId } from "@/runtime/active-host";
-import { type RegisterHostInput, type RemoteHostSummary, useHosts } from "@/runtime/use-hosts";
+import { type RegisterHostInput, type RemoteHostSummary, type UpdateHostInput, useHosts } from "@/runtime/use-hosts";
 
 type ConnectionState = "disconnected" | "connecting" | "connected" | "error";
 
@@ -38,11 +38,17 @@ function statusLabel(state: ConnectionState | null | undefined): string {
 	}
 }
 
-function StatusDot({ state }: { state: ConnectionState | null | undefined }): React.ReactElement {
+function StatusDot({
+	state,
+	title,
+}: {
+	state: ConnectionState | null | undefined;
+	title?: string;
+}): React.ReactElement {
 	return (
 		<span
 			className={cn("inline-block h-2 w-2 shrink-0 rounded-full", statusDotClass(state))}
-			title={statusLabel(state)}
+			title={title ?? statusLabel(state)}
 		/>
 	);
 }
@@ -53,8 +59,9 @@ function StatusDot({ state }: { state: ConnectionState | null | undefined }): Re
  * whole app (via {@link setActiveHostId}, which reloads).
  */
 export function HostSwitcher(): React.ReactElement | null {
-	const { hosts, error, addHost, removeHost, connectHost } = useHosts();
+	const { hosts, error, addHost, updateHost, removeHost, connectHost } = useHosts();
 	const [isAddOpen, setIsAddOpen] = useState(false);
+	const [editing, setEditing] = useState<RemoteHostSummary | null>(null);
 	const activeHostId = getActiveHostId();
 
 	// Hide entirely until there's something to manage, so single-machine users
@@ -104,7 +111,7 @@ export function HostSwitcher(): React.ReactElement | null {
 						side="bottom"
 						align="start"
 						sideOffset={4}
-						className="z-50 min-w-[220px] rounded-md border border-border-bright bg-surface-1 p-1 shadow-lg"
+						className="z-50 min-w-[240px] rounded-md border border-border-bright bg-surface-1 p-1 shadow-lg"
 					>
 						<HostMenuItem
 							label="Local (this machine)"
@@ -119,6 +126,7 @@ export function HostSwitcher(): React.ReactElement | null {
 								summary={entry}
 								isActive={entry.host.id === activeHostId}
 								onSelect={() => setActiveHostId(entry.host.id)}
+								onEdit={() => setEditing(entry)}
 								onConnect={() => {
 									void connectHost(entry.host.id).catch((caught) =>
 										notifyError(caught instanceof Error ? caught.message : String(caught)),
@@ -146,6 +154,15 @@ export function HostSwitcher(): React.ReactElement | null {
 				</DropdownMenu.Portal>
 			</DropdownMenu.Root>
 			<AddHostDialog open={isAddOpen} onOpenChange={setIsAddOpen} addHost={addHost} />
+			<EditHostDialog
+				summary={editing}
+				onOpenChange={(open) => {
+					if (!open) {
+						setEditing(null);
+					}
+				}}
+				updateHost={updateHost}
+			/>
 		</div>
 	);
 }
@@ -177,46 +194,64 @@ function RemoteHostMenuItem({
 	summary,
 	isActive,
 	onSelect,
+	onEdit,
 	onConnect,
 	onRemove,
 }: {
 	summary: RemoteHostSummary;
 	isActive: boolean;
 	onSelect: () => void;
+	onEdit: () => void;
 	onConnect: () => void;
 	onRemove: () => void;
 }): React.ReactElement {
 	const state = (summary.status?.state ?? null) as ConnectionState | null;
+	const errorMessage = state === "error" ? summary.status?.error : null;
 	return (
-		<div className="group flex items-center gap-1 rounded-sm px-1 hover:bg-surface-3">
-			<button
-				type="button"
-				onClick={onSelect}
-				className="flex min-w-0 flex-1 items-center gap-2 rounded-sm px-1 py-1.5 text-left text-[13px] text-text-primary"
-			>
-				<StatusDot state={state} />
-				<Server size={13} className="shrink-0 text-text-secondary" />
-				<span className="min-w-0 flex-1 truncate">{summary.host.label}</span>
-				{isActive ? <Check size={14} className="shrink-0 text-accent" /> : null}
-			</button>
-			{state === "error" || state === "disconnected" ? (
+		<div className="group rounded-sm px-1 hover:bg-surface-3">
+			<div className="flex items-center gap-1">
 				<button
 					type="button"
-					onClick={onConnect}
-					title="Reconnect"
-					className="shrink-0 rounded-sm px-1 py-0.5 text-[11px] text-text-tertiary hover:text-text-secondary"
+					onClick={onSelect}
+					className="flex min-w-0 flex-1 items-center gap-2 rounded-sm px-1 py-1.5 text-left text-[13px] text-text-primary"
 				>
-					Retry
+					<StatusDot state={state} title={errorMessage ?? undefined} />
+					<Server size={13} className="shrink-0 text-text-secondary" />
+					<span className="min-w-0 flex-1 truncate">{summary.host.label}</span>
+					{isActive ? <Check size={14} className="shrink-0 text-accent" /> : null}
 				</button>
+				{state === "error" || state === "disconnected" ? (
+					<button
+						type="button"
+						onClick={onConnect}
+						title="Reconnect"
+						className="shrink-0 rounded-sm px-1 py-0.5 text-[11px] text-text-tertiary hover:text-text-secondary"
+					>
+						Retry
+					</button>
+				) : null}
+				<button
+					type="button"
+					onClick={onEdit}
+					title="Edit host"
+					className="shrink-0 rounded-sm p-1 text-text-tertiary opacity-0 hover:text-text-primary group-hover:opacity-100"
+				>
+					<Pencil size={13} />
+				</button>
+				<button
+					type="button"
+					onClick={onRemove}
+					title="Remove host"
+					className="shrink-0 rounded-sm p-1 text-text-tertiary opacity-0 hover:text-status-red group-hover:opacity-100"
+				>
+					<Trash2 size={13} />
+				</button>
+			</div>
+			{errorMessage ? (
+				<p className="px-1 pb-1 text-[11px] leading-snug text-status-red" title={errorMessage}>
+					{errorMessage}
+				</p>
 			) : null}
-			<button
-				type="button"
-				onClick={onRemove}
-				title="Remove host"
-				className="shrink-0 rounded-sm p-1 text-text-tertiary opacity-0 hover:text-status-red group-hover:opacity-100"
-			>
-				<Trash2 size={13} />
-			</button>
 		</div>
 	);
 }
@@ -224,56 +259,73 @@ function RemoteHostMenuItem({
 const inputClass =
 	"w-full rounded-md border border-border bg-surface-2 px-2.5 py-1.5 text-sm text-text-primary placeholder:text-text-tertiary focus:border-accent focus:outline-none";
 
-function AddHostDialog({
+interface HostFormValues {
+	label: string;
+	hostname: string;
+	username: string;
+	sshPort: string;
+	identity: string;
+	useAgent: boolean;
+	runtimePort: string;
+}
+
+const emptyFormValues: HostFormValues = {
+	label: "",
+	hostname: "",
+	username: "",
+	sshPort: "",
+	identity: "",
+	useAgent: false,
+	runtimePort: "",
+};
+
+function summaryToFormValues(summary: RemoteHostSummary): HostFormValues {
+	const { host } = summary;
+	return {
+		label: host.label,
+		hostname: host.ssh.hostname,
+		username: host.ssh.username,
+		sshPort: host.ssh.port ? String(host.ssh.port) : "",
+		identity: host.ssh.privateKeyPath ?? "",
+		useAgent: host.ssh.useAgent ?? false,
+		runtimePort: host.runtimePort ? String(host.runtimePort) : "",
+	};
+}
+
+/** Shared add/edit form. The dialog chrome and submit semantics are owned by callers. */
+function HostFormDialog({
 	open,
 	onOpenChange,
-	addHost,
+	title,
+	submitLabel,
+	initialValues,
+	onSubmit,
 }: {
 	open: boolean;
 	onOpenChange: (open: boolean) => void;
-	addHost: (input: RegisterHostInput) => Promise<RemoteHostSummary>;
+	title: string;
+	submitLabel: string;
+	initialValues: HostFormValues;
+	onSubmit: (values: HostFormValues) => Promise<void>;
 }): React.ReactElement {
-	const [label, setLabel] = useState("");
-	const [hostname, setHostname] = useState("");
-	const [username, setUsername] = useState("");
-	const [sshPort, setSshPort] = useState("");
-	const [identity, setIdentity] = useState("");
-	const [useAgent, setUseAgent] = useState(false);
-	const [runtimePort, setRuntimePort] = useState("");
+	const [values, setValues] = useState<HostFormValues>(initialValues);
 	const [submitting, setSubmitting] = useState(false);
 
-	const reset = () => {
-		setLabel("");
-		setHostname("");
-		setUsername("");
-		setSshPort("");
-		setIdentity("");
-		setUseAgent(false);
-		setRuntimePort("");
+	const set = <Key extends keyof HostFormValues>(key: Key, value: HostFormValues[Key]) => {
+		setValues((current) => ({ ...current, [key]: value }));
 	};
+
+	const canSubmit = !submitting && values.hostname.trim().length > 0 && values.username.trim().length > 0;
 
 	const handleSubmit = async (event: FormEvent) => {
 		event.preventDefault();
-		if (submitting || !hostname.trim() || !username.trim()) {
+		if (!canSubmit) {
 			return;
 		}
 		setSubmitting(true);
 		try {
-			const added = await addHost({
-				label: label.trim() || hostname.trim(),
-				ssh: {
-					hostname: hostname.trim(),
-					username: username.trim(),
-					port: sshPort.trim() ? Number.parseInt(sshPort, 10) : undefined,
-					privateKeyPath: identity.trim() || undefined,
-					useAgent: useAgent || undefined,
-				},
-				runtimePort: runtimePort.trim() ? Number.parseInt(runtimePort, 10) : undefined,
-			});
-			reset();
+			await onSubmit(values);
 			onOpenChange(false);
-			// Jump straight to the newly added host.
-			setActiveHostId(added.host.id);
 		} catch (caught) {
 			notifyError(caught instanceof Error ? caught.message : String(caught));
 		} finally {
@@ -283,30 +335,30 @@ function AddHostDialog({
 
 	return (
 		<Dialog open={open} onOpenChange={onOpenChange}>
-			<DialogHeader title="Add remote host" />
+			<DialogHeader title={title} />
 			<form onSubmit={(event) => void handleSubmit(event)}>
 				<DialogBody className="flex flex-col gap-3">
 					<Field label="SSH host" hint="Hostname or IP">
 						<input
 							className={inputClass}
-							value={hostname}
-							onChange={(e) => setHostname(e.target.value)}
+							value={values.hostname}
+							onChange={(e) => set("hostname", e.target.value)}
 							placeholder="10.0.0.5"
 						/>
 					</Field>
 					<Field label="SSH user">
 						<input
 							className={inputClass}
-							value={username}
-							onChange={(e) => setUsername(e.target.value)}
+							value={values.username}
+							onChange={(e) => set("username", e.target.value)}
 							placeholder="agent"
 						/>
 					</Field>
 					<Field label="Label" hint="Optional">
 						<input
 							className={inputClass}
-							value={label}
-							onChange={(e) => setLabel(e.target.value)}
+							value={values.label}
+							onChange={(e) => set("label", e.target.value)}
 							placeholder="van-one"
 						/>
 					</Field>
@@ -314,8 +366,8 @@ function AddHostDialog({
 						<Field label="SSH port" hint="Default 22">
 							<input
 								className={inputClass}
-								value={sshPort}
-								onChange={(e) => setSshPort(e.target.value)}
+								value={values.sshPort}
+								onChange={(e) => set("sshPort", e.target.value)}
 								placeholder="22"
 								inputMode="numeric"
 							/>
@@ -323,23 +375,27 @@ function AddHostDialog({
 						<Field label="Runtime port" hint="Default 3484">
 							<input
 								className={inputClass}
-								value={runtimePort}
-								onChange={(e) => setRuntimePort(e.target.value)}
+								value={values.runtimePort}
+								onChange={(e) => set("runtimePort", e.target.value)}
 								placeholder="3484"
 								inputMode="numeric"
 							/>
 						</Field>
 					</div>
-					<Field label="Identity file" hint="Private key path (never stored)">
+					<Field label="Identity file" hint="Private key path (~ is allowed; never stored)">
 						<input
 							className={inputClass}
-							value={identity}
-							onChange={(e) => setIdentity(e.target.value)}
+							value={values.identity}
+							onChange={(e) => set("identity", e.target.value)}
 							placeholder="~/.ssh/id_ed25519"
 						/>
 					</Field>
 					<label className="flex items-center gap-2 text-sm text-text-secondary">
-						<input type="checkbox" checked={useAgent} onChange={(e) => setUseAgent(e.target.checked)} />
+						<input
+							type="checkbox"
+							checked={values.useAgent}
+							onChange={(e) => set("useAgent", e.target.checked)}
+						/>
 						Use local SSH agent (SSH_AUTH_SOCK)
 					</label>
 				</DialogBody>
@@ -347,14 +403,95 @@ function AddHostDialog({
 					<Button type="button" variant="default" onClick={() => onOpenChange(false)} disabled={submitting}>
 						Cancel
 					</Button>
-					<Button type="submit" variant="primary" disabled={submitting || !hostname.trim() || !username.trim()}>
+					<Button type="submit" variant="primary" disabled={!canSubmit}>
 						{submitting ? <Spinner size={14} /> : null}
-						Add host
+						{submitLabel}
 					</Button>
 				</DialogFooter>
 			</form>
 		</Dialog>
 	);
+}
+
+function AddHostDialog({
+	open,
+	onOpenChange,
+	addHost,
+}: {
+	open: boolean;
+	onOpenChange: (open: boolean) => void;
+	addHost: (input: RegisterHostInput) => Promise<RemoteHostSummary>;
+}): React.ReactElement | null {
+	if (!open) {
+		return null;
+	}
+	return (
+		<HostFormDialog
+			open={open}
+			onOpenChange={onOpenChange}
+			title="Add remote host"
+			submitLabel="Add host"
+			initialValues={emptyFormValues}
+			onSubmit={async (values) => {
+				const added = await addHost({
+					label: values.label.trim() || values.hostname.trim(),
+					ssh: buildSshInput(values),
+					runtimePort: parsePort(values.runtimePort),
+				});
+				// Jump straight to the newly added host.
+				setActiveHostId(added.host.id);
+			}}
+		/>
+	);
+}
+
+function EditHostDialog({
+	summary,
+	onOpenChange,
+	updateHost,
+}: {
+	summary: RemoteHostSummary | null;
+	onOpenChange: (open: boolean) => void;
+	updateHost: (hostId: string, patch: UpdateHostInput) => Promise<RemoteHostSummary | null>;
+}): React.ReactElement | null {
+	if (!summary) {
+		return null;
+	}
+	return (
+		<HostFormDialog
+			open
+			onOpenChange={onOpenChange}
+			title={`Edit ${summary.host.label}`}
+			submitLabel="Save changes"
+			initialValues={summaryToFormValues(summary)}
+			onSubmit={async (values) => {
+				await updateHost(summary.host.id, {
+					label: values.label.trim() || values.hostname.trim(),
+					ssh: buildSshInput(values),
+					runtimePort: parsePort(values.runtimePort),
+				});
+			}}
+		/>
+	);
+}
+
+function parsePort(value: string): number | undefined {
+	const trimmed = value.trim();
+	return trimmed ? Number.parseInt(trimmed, 10) : undefined;
+}
+
+/**
+ * Build the ssh payload, omitting empty optional fields so an update never
+ * clobbers a stored key path / port with an empty value.
+ */
+function buildSshInput(values: HostFormValues): RegisterHostInput["ssh"] {
+	return {
+		hostname: values.hostname.trim(),
+		username: values.username.trim(),
+		port: parsePort(values.sshPort),
+		privateKeyPath: values.identity.trim() || undefined,
+		useAgent: values.useAgent || undefined,
+	};
 }
 
 function Field({

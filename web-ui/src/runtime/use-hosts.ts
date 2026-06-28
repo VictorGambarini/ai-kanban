@@ -18,6 +18,19 @@ export interface RegisterHostInput {
 	runtimePort?: number;
 }
 
+export interface UpdateHostInput {
+	label?: string;
+	ssh?: {
+		hostname?: string;
+		port?: number;
+		username?: string;
+		privateKeyPath?: string;
+		useAgent?: boolean;
+		passphraseEnv?: string;
+	};
+	runtimePort?: number;
+}
+
 const REFRESH_INTERVAL_MS = 5_000;
 
 export interface UseHostsResult {
@@ -26,6 +39,7 @@ export interface UseHostsResult {
 	error: string | null;
 	refresh: () => Promise<void>;
 	addHost: (input: RegisterHostInput) => Promise<RemoteHostSummary>;
+	updateHost: (hostId: string, patch: UpdateHostInput) => Promise<RemoteHostSummary | null>;
 	removeHost: (hostId: string) => Promise<void>;
 	connectHost: (hostId: string) => Promise<void>;
 	disconnectHost: (hostId: string) => Promise<void>;
@@ -76,6 +90,15 @@ export function useHosts(): UseHostsResult {
 		[refresh],
 	);
 
+	const updateHost = useCallback(
+		async (hostId: string, patch: UpdateHostInput) => {
+			const summary = await getHubTrpcClient().hosts.update.mutate({ hostId, patch });
+			await refresh();
+			return summary;
+		},
+		[refresh],
+	);
+
 	const removeHost = useCallback(
 		async (hostId: string) => {
 			await getHubTrpcClient().hosts.remove.mutate({ hostId });
@@ -100,5 +123,5 @@ export function useHosts(): UseHostsResult {
 		[refresh],
 	);
 
-	return { hosts, isLoading, error, refresh, addHost, removeHost, connectHost, disconnectHost };
+	return { hosts, isLoading, error, refresh, addHost, updateHost, removeHost, connectHost, disconnectHost };
 }
