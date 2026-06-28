@@ -161,7 +161,7 @@ class ClaudeSkillInjector implements SkillInjector {
 			...skillNames.map((name) => `- **${name}**: \`.claude/skills/${name}/SKILL.md\``),
 			KANBAN_SKILLS_END,
 		];
-		return lines.join("\n") + "\n";
+		return `${lines.join("\n")}\n`;
 	}
 }
 

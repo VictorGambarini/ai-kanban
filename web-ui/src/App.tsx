@@ -69,7 +69,11 @@ import { useRuntimeProjectConfig } from "@/runtime/use-runtime-project-config";
 import { useTerminalConnectionReady } from "@/runtime/use-terminal-connection-ready";
 import { useWorkspacePersistence } from "@/runtime/use-workspace-persistence";
 import { saveWorkspaceState } from "@/runtime/workspace-state-query";
-import { applyTaskDetailClineSettingsChange, findCardSelection } from "@/state/board-state";
+import {
+	applyTaskDetailClineSettingsChange,
+	applyTaskDetailSkillSelection,
+	findCardSelection,
+} from "@/state/board-state";
 import {
 	getTaskWorkspaceInfo,
 	getTaskWorkspaceSnapshot,
@@ -755,6 +759,18 @@ export default function App(): ReactElement {
 		},
 		[defaultTaskClineProviderId, runtimeProjectConfig, selectedCard, setBoard],
 	);
+	// Persist the per-task skill selection chosen from the detail view. The worktree files
+	// themselves are synced by TaskSkillsButton via the runtime endpoint; this only keeps
+	// the board card in sync so future restarts re-inject the same set.
+	const handleTaskSkillsChanged = useCallback(
+		(taskId: string, skillNames: string[]) => {
+			setBoard((currentBoard) => {
+				const result = applyTaskDetailSkillSelection(currentBoard, taskId, skillNames);
+				return result.updated ? result.board : currentBoard;
+			});
+		},
+		[setBoard],
+	);
 
 	const handleCreateDialogOpenChange = useCallback(
 		(open: boolean) => {
@@ -1035,6 +1051,7 @@ export default function App(): ReactElement {
 										handleOpenEditTask(task, { preserveDetailSelection: true });
 									}}
 									onSaveTaskTitle={handleSaveTaskTitle}
+									onTaskSkillsChanged={handleTaskSkillsChanged}
 									onCommitTask={handleCommitTask}
 									onOpenPrTask={handleOpenPrTask}
 									onAgentCommitTask={handleAgentCommitTask}

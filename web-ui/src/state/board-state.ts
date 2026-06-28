@@ -546,6 +546,14 @@ export function updateTask(board: BoardData, taskId: string, draft: TaskDraft): 
 							: undefined,
 				agentId: draft.agentId,
 				clineSettings: draft.clineSettings,
+				// Preserve existing skills when the draft omits them (e.g. title-only edits);
+				// an explicit empty array clears the selection.
+				skillNames:
+					draft.skillNames === undefined
+						? card.skillNames
+						: draft.skillNames.length > 0
+							? [...draft.skillNames]
+							: undefined,
 				baseRef,
 				updatedAt: Date.now(),
 			};
@@ -608,6 +616,31 @@ export function applyTaskDetailClineSettingsSelection(
 		images: selection.card.images,
 		agentId: settings.agentId,
 		clineSettings: settings.clineSettings ?? undefined,
+		baseRef: selection.card.baseRef,
+	});
+}
+
+// Update the per-task skill selection from the detail view (in-progress/review tickets).
+// Skills apply to any injection-capable agent, so unlike the Cline settings helpers this
+// has no agent gating.
+export function applyTaskDetailSkillSelection(
+	board: BoardData,
+	taskId: string,
+	skillNames: string[],
+): { board: BoardData; updated: boolean } {
+	const selection = findCardSelection(board, taskId);
+	if (!selection) {
+		return { board, updated: false };
+	}
+	return updateTask(board, taskId, {
+		prompt: selection.card.prompt,
+		startInPlanMode: selection.card.startInPlanMode,
+		autoReviewEnabled: selection.card.autoReviewEnabled,
+		autoReviewMode: selection.card.autoReviewMode,
+		images: selection.card.images,
+		agentId: selection.card.agentId,
+		clineSettings: selection.card.clineSettings,
+		skillNames,
 		baseRef: selection.card.baseRef,
 	});
 }

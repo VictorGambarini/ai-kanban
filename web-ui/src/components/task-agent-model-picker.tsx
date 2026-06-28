@@ -1,6 +1,6 @@
 import * as Collapsible from "@radix-ui/react-collapsible";
 import { getRuntimeLaunchSupportedAgentCatalog } from "@runtime-agent-catalog";
-import { ChevronDown, ChevronRight, HelpCircle } from "lucide-react";
+import { ChevronDown } from "lucide-react";
 import type { ReactElement } from "react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
@@ -11,11 +11,9 @@ import {
 	getClineReasoningEnabledModelIds,
 } from "@/components/detail-panels/cline-model-picker-options";
 import { SearchSelectDropdown } from "@/components/search-select-dropdown";
-import { groupSkillsBySource } from "@/components/skills/skill-grouping";
-import { SkillSwitch } from "@/components/skills/skill-switch";
+import { SkillSelectorList } from "@/components/skills/skill-selector-list";
 import { cn } from "@/components/ui/cn";
 import { NativeSelect } from "@/components/ui/native-select";
-import { Tooltip } from "@/components/ui/tooltip";
 import {
 	fetchClineProviderCatalog,
 	fetchClineProviderModels,
@@ -29,7 +27,6 @@ import type {
 	RuntimeTaskClineSettings,
 	RuntimeWorkspaceSkill,
 } from "@/runtime/types";
-import { readSkillUsageCounts } from "@/storage/skill-preferences";
 
 // ---------------------------------------------------------------------------
 // Hook: manages fetch state for Cline provider catalog + model lists
@@ -489,16 +486,7 @@ export function TaskAgentModelPicker({
 		}
 	}, [clineModelId, isLoadingModels, modelPickerOptions.options, updateTaskClineSettings]);
 
-	// Only enabled skills are selectable per task; disabling a skill in settings hides it here.
-	// Within each source group, surface the skills used most often in this workspace first.
-	const skillUsageCounts = useMemo(() => readSkillUsageCounts(workspaceId), [workspaceId]);
-	const skillGroups = useMemo(() => {
-		const groups = groupSkillsBySource(workspaceSkills.filter((skill) => !skill.disabled));
-		return groups.map((group) => ({
-			...group,
-			skills: [...group.skills].sort((a, b) => (skillUsageCounts[b.name] ?? 0) - (skillUsageCounts[a.name] ?? 0)),
-		}));
-	}, [workspaceSkills, skillUsageCounts]);
+	const hasSelectableSkills = workspaceSkills.some((skill) => !skill.disabled);
 
 	return (
 		<div className="flex flex-col gap-2">
@@ -653,79 +641,15 @@ export function TaskAgentModelPicker({
 							</div>
 						) : null}
 					</div>
-					{skillGroups.length > 0 ? (
+					{hasSelectableSkills ? (
 						<div className="pt-2 flex flex-col gap-2">
 							<span className="text-[11px] text-text-secondary block mb-1">Skills</span>
-							{skillGroups.map((group) => {
-								const groupNames = group.skills.map((s) => s.name);
-								const allSelected = groupNames.every((n) => skillNames.includes(n));
-								return (
-									<Collapsible.Root key={group.label} defaultOpen className="flex flex-col gap-1">
-										<div className="flex items-center gap-2">
-											<Collapsible.Trigger className="group flex flex-1 items-center gap-1.5 min-w-0 text-left text-[11px] font-semibold uppercase tracking-wider text-text-secondary hover:text-text-primary">
-												<ChevronRight
-													size={12}
-													className="flex-shrink-0 transition-transform group-data-[state=open]:rotate-90"
-												/>
-												<span className="truncate">{group.label}</span>
-												<span className="text-text-tertiary font-normal normal-case tracking-normal">
-													{group.skills.length}
-												</span>
-											</Collapsible.Trigger>
-											<SkillSwitch
-												checked={allSelected}
-												onCheckedChange={(next) => {
-													if (!onSkillNamesChange) return;
-													if (next) {
-														onSkillNamesChange([...new Set([...skillNames, ...groupNames])]);
-													} else {
-														onSkillNamesChange(skillNames.filter((n) => !groupNames.includes(n)));
-													}
-												}}
-											/>
-										</div>
-										<Collapsible.Content className="flex flex-col gap-1 pl-3.5">
-											{group.skills.map((skill) => {
-												const checked = skillNames.includes(skill.name);
-												const checkboxId = `task-skill-${skill.name}`;
-												return (
-													<div key={skill.name} className="flex items-center gap-2 select-none">
-														<SkillSwitch
-															id={checkboxId}
-															checked={checked}
-															onCheckedChange={(next) => {
-																if (!onSkillNamesChange) return;
-																if (next) {
-																	onSkillNamesChange([...skillNames, skill.name]);
-																} else {
-																	onSkillNamesChange(skillNames.filter((n) => n !== skill.name));
-																}
-															}}
-														/>
-														<label
-															htmlFor={checkboxId}
-															className="flex items-center gap-1 min-w-0 text-[12px] text-text-primary leading-tight cursor-pointer"
-														>
-															<span className="truncate">{skill.name}</span>
-															{skill.description ? (
-																<Tooltip
-																	content={skill.description}
-																	className="max-w-xs whitespace-normal break-words"
-																>
-																	<HelpCircle
-																		size={12}
-																		className="flex-shrink-0 text-text-tertiary hover:text-text-secondary"
-																	/>
-																</Tooltip>
-															) : null}
-														</label>
-													</div>
-												);
-											})}
-										</Collapsible.Content>
-									</Collapsible.Root>
-								);
-							})}
+							<SkillSelectorList
+								workspaceId={workspaceId}
+								workspaceSkills={workspaceSkills}
+								skillNames={skillNames}
+								onSkillNamesChange={onSkillNamesChange ?? (() => {})}
+							/>
 						</div>
 					) : null}
 				</Collapsible.Content>
