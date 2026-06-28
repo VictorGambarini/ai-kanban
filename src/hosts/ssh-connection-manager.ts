@@ -1,5 +1,7 @@
 import { readFileSync } from "node:fs";
 import { createServer, type Server, type Socket } from "node:net";
+import { homedir } from "node:os";
+import { join } from "node:path";
 
 import { type Client, type ClientChannel, type ConnectConfig, Client as Ssh2Client } from "ssh2";
 
@@ -27,6 +29,21 @@ export interface RemoteHostConnectionOptions {
 	now?: () => number;
 }
 
+/**
+ * Expand a leading `~` to the user's home directory. Node's `fs` does no shell
+ * tilde expansion, so a stored key path like `~/.ssh/id_rsa` would otherwise
+ * fail with ENOENT and the connection would never open.
+ */
+export function expandHomePath(path: string): string {
+	if (path === "~") {
+		return homedir();
+	}
+	if (path.startsWith("~/") || path.startsWith("~\\")) {
+		return join(homedir(), path.slice(2));
+	}
+	return path;
+}
+
 function buildConnectConfig(host: RemoteHost): ConnectConfig {
 	const { ssh } = host;
 	const config: ConnectConfig = {
@@ -36,7 +53,13 @@ function buildConnectConfig(host: RemoteHost): ConnectConfig {
 		keepaliveInterval: KEEPALIVE_INTERVAL_MS,
 	};
 	if (ssh.privateKeyPath) {
-		config.privateKey = readFileSync(ssh.privateKeyPath);
+		const keyPath = expandHomePath(ssh.privateKeyPath);
+		try {
+			config.privateKey = readFileSync(keyPath);
+		} catch (error) {
+			const reason = error instanceof Error ? error.message : String(error);
+			throw new Error(`Could not read private key at ${keyPath}: ${reason}`);
+		}
 	}
 	if (ssh.passphraseEnv) {
 		const passphrase = process.env[ssh.passphraseEnv];

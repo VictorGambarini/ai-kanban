@@ -1,10 +1,12 @@
 import { EventEmitter } from "node:events";
+import { homedir } from "node:os";
+import { join } from "node:path";
 
 import type { Client, ConnectConfig } from "ssh2";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { RemoteHost, RemoteHostConnectionStatus } from "../../../src/hosts/host-types";
-import { RemoteHostConnection } from "../../../src/hosts/ssh-connection-manager";
+import { expandHomePath, RemoteHostConnection } from "../../../src/hosts/ssh-connection-manager";
 
 function createHost(overrides: Partial<RemoteHost> = {}): RemoteHost {
 	return {
@@ -153,5 +155,35 @@ describe("RemoteHostConnection", () => {
 		vi.advanceTimersByTime(10_000);
 		expect(clients).toHaveLength(1);
 		expect(connection.getStatus().state).toBe("disconnected");
+	});
+
+	// Regression: a stored key path like "~/.ssh/id_rsa" must be expanded before
+	// readFileSync, otherwise the connection fails with ENOENT on the literal "~".
+	it("expands a leading ~ in the private key path before reading it", () => {
+		const connection = makeConnection(
+			createHost({ ssh: { hostname: "h", port: 22, username: "u", privateKeyPath: "~/.ssh/does-not-exist-xyz" } }),
+		);
+		connection.connect();
+		const error = connection.getStatus().error ?? "";
+		expect(connection.getStatus().state).toBe("error");
+		// The error must reference the expanded absolute path, never the literal tilde.
+		expect(error).toContain(join(homedir(), ".ssh/does-not-exist-xyz"));
+		expect(error).not.toContain("~/.ssh");
+		connection.disconnect();
+	});
+});
+
+describe("expandHomePath", () => {
+	it("expands a bare ~ to the home directory", () => {
+		expect(expandHomePath("~")).toBe(homedir());
+	});
+
+	it("expands a leading ~/ to a path under the home directory", () => {
+		expect(expandHomePath("~/.ssh/id_rsa")).toBe(join(homedir(), ".ssh/id_rsa"));
+	});
+
+	it("leaves absolute and relative paths untouched", () => {
+		expect(expandHomePath("/etc/ssh/key")).toBe("/etc/ssh/key");
+		expect(expandHomePath("keys/id_rsa")).toBe("keys/id_rsa");
 	});
 });
