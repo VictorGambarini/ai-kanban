@@ -26,6 +26,7 @@ import {
 	type RuntimeTaskSessionInputRequest,
 	type RuntimeTaskSessionStartRequest,
 	type RuntimeTaskSessionStopRequest,
+	type RuntimeTaskSkillsSyncRequest,
 	type RuntimeTaskWorkspaceInfoRequest,
 	type RuntimeTerminalWsClientMessage,
 	type RuntimeWorkspaceChangesRequest,
@@ -58,6 +59,7 @@ import {
 	runtimeTaskSessionInputRequestSchema,
 	runtimeTaskSessionStartRequestSchema,
 	runtimeTaskSessionStopRequestSchema,
+	runtimeTaskSkillsSyncRequestSchema,
 	runtimeTaskWorkspaceInfoRequestSchema,
 	runtimeTerminalWsClientMessageSchema,
 	runtimeWorkspaceChangesRequestSchema,
@@ -227,6 +229,23 @@ export function parseTaskSessionStartRequest(value: unknown): RuntimeTaskSession
 	const baseRef = parsed.baseRef.trim();
 	if (!baseRef) {
 		throw new Error("Task session baseRef cannot be empty.");
+	}
+	return {
+		...parsed,
+		taskId,
+		baseRef,
+	};
+}
+
+export function parseTaskSkillsSyncRequest(value: unknown): RuntimeTaskSkillsSyncRequest {
+	const parsed = parseWithSchema(runtimeTaskSkillsSyncRequestSchema, value);
+	const taskId = parsed.taskId.trim();
+	if (!taskId) {
+		throw new Error("Task skills sync taskId cannot be empty.");
+	}
+	const baseRef = parsed.baseRef.trim();
+	if (!baseRef) {
+		throw new Error("Task skills sync baseRef cannot be empty.");
 	}
 	return {
 		...parsed,

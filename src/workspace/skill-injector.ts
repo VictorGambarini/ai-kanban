@@ -1,15 +1,17 @@
-import { cp, mkdir, readFile, writeFile } from "node:fs/promises";
+import { cp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import type { RuntimeAgentId } from "../core/api-contract";
+import type { RuntimeAgentId, RuntimeWorkspaceSkill } from "../core/api-contract";
 import { ensureSkillGitExcludes } from "./skill-git-exclude";
-import { buildClaudeSkillOverrides, listDiscoverableClaudeSkillNames } from "./skill-isolation";
+import { buildClaudeSkillOverrides, listDiscoverableClaudeSkillNames, listSkillDirNames } from "./skill-isolation";
 import { listSkills } from "./workspace-skill-service";
 
 const KANBAN_SKILLS_START = "<!-- kanban-skills-start -->";
 const KANBAN_SKILLS_END = "<!-- kanban-skills-end -->";
 
 interface SkillInjector {
-	inject(worktreePath: string, workspacePath: string, skillNames: string[]): Promise<void>;
+	// Applies the desired skill set as the worktree's source of truth: copies in the
+	// selected skills and removes any previously Kanban-managed skills no longer desired.
+	apply(worktreePath: string, workspacePath: string, desiredSkillNames: string[]): Promise<void>;
 }
 
 async function copySkillDir(srcDir: string, destDir: string): Promise<void> {
@@ -17,8 +19,9 @@ async function copySkillDir(srcDir: string, destDir: string): Promise<void> {
 	await cp(srcDir, destDir, { recursive: true, force: true });
 }
 
-async function resolveSkillDirs(workspacePath: string, skillNames: string[]): Promise<Map<string, string>> {
-	const skills = await listSkills(workspacePath);
+// Resolve enabled, desired skills to their source directories from a pre-fetched
+// workspace skill list (avoids re-shelling the `npx skills` CLI per call).
+function resolveSkillDirs(skills: RuntimeWorkspaceSkill[], skillNames: string[]): Map<string, string> {
 	const result = new Map<string, string>();
 	for (const name of skillNames) {
 		const skill = skills.find((s) => s.name === name && !s.disabled);
@@ -29,22 +32,50 @@ async function resolveSkillDirs(workspacePath: string, skillNames: string[]): Pr
 	return result;
 }
 
+// Remove worktree skill dirs that Kanban previously injected (i.e. whose name maps to a
+// known workspace skill) but that are no longer desired. User-authored skill dirs that
+// don't correspond to a workspace skill are left untouched.
+async function removeManagedSkillDirs(
+	roots: string[],
+	workspaceSkillNames: Set<string>,
+	desired: Set<string>,
+): Promise<void> {
+	for (const root of roots) {
+		for (const name of await listSkillDirNames(root)) {
+			if (workspaceSkillNames.has(name) && !desired.has(name)) {
+				await rm(join(root, name), { recursive: true, force: true });
+			}
+		}
+	}
+}
+
 class ClineSkillInjector implements SkillInjector {
-	async inject(worktreePath: string, workspacePath: string, skillNames: string[]): Promise<void> {
-		const skillDirs = await resolveSkillDirs(workspacePath, skillNames);
-		for (const [name, srcDir] of skillDirs) {
-			const destDir = join(worktreePath, ".agents", "skills", name);
-			await copySkillDir(srcDir, destDir);
+	async apply(worktreePath: string, workspacePath: string, desiredSkillNames: string[]): Promise<void> {
+		const skills = await listSkills(workspacePath);
+		const workspaceSkillNames = new Set(skills.map((s) => s.name));
+		const desired = new Set(desiredSkillNames);
+		const agentsRoot = join(worktreePath, ".agents", "skills");
+
+		await removeManagedSkillDirs([agentsRoot], workspaceSkillNames, desired);
+		for (const [name, srcDir] of resolveSkillDirs(skills, desiredSkillNames)) {
+			await copySkillDir(srcDir, join(agentsRoot, name));
 		}
 	}
 }
 
 class ClaudeSkillInjector implements SkillInjector {
-	async inject(worktreePath: string, workspacePath: string, skillNames: string[]): Promise<void> {
-		const skillDirs = await resolveSkillDirs(workspacePath, skillNames);
+	async apply(worktreePath: string, workspacePath: string, desiredSkillNames: string[]): Promise<void> {
+		const skills = await listSkills(workspacePath);
+		const workspaceSkillNames = new Set(skills.map((s) => s.name));
+		const desired = new Set(desiredSkillNames);
+		const agentsRoot = join(worktreePath, ".agents", "skills");
+		const claudeRoot = join(worktreePath, ".claude", "skills");
+
+		await removeManagedSkillDirs([agentsRoot, claudeRoot], workspaceSkillNames, desired);
+		const skillDirs = resolveSkillDirs(skills, desiredSkillNames);
 		for (const [name, srcDir] of skillDirs) {
-			await copySkillDir(srcDir, join(worktreePath, ".agents", "skills", name));
-			await copySkillDir(srcDir, join(worktreePath, ".claude", "skills", name));
+			await copySkillDir(srcDir, join(agentsRoot, name));
+			await copySkillDir(srcDir, join(claudeRoot, name));
 		}
 		const selectedNames = [...skillDirs.keys()];
 		await this.writeClaudeLocalMd(worktreePath, selectedNames);
@@ -72,10 +103,21 @@ class ClaudeSkillInjector implements SkillInjector {
 			existing.skillOverrides && typeof existing.skillOverrides === "object"
 				? (existing.skillOverrides as Record<string, unknown>)
 				: {};
+		// Re-selecting a previously hidden skill must clear its stale "off" entry so it
+		// becomes visible again on a later sync. Drop managed "off" entries for now-selected
+		// skills; keep any other (user-authored) overrides untouched.
+		const selected = new Set(selectedNames);
+		const preserved: Record<string, unknown> = {};
+		for (const [name, value] of Object.entries(existingOverrides)) {
+			if (selected.has(name) && value === "off") {
+				continue;
+			}
+			preserved[name] = value;
+		}
 		const merged = {
 			...existing,
 			disableBundledSkills: true,
-			skillOverrides: { ...existingOverrides, ...overrides },
+			skillOverrides: { ...preserved, ...overrides },
 		};
 
 		await mkdir(join(worktreePath, ".claude"), { recursive: true });
@@ -98,8 +140,10 @@ class ClaudeSkillInjector implements SkillInjector {
 		const endIdx = existing.indexOf(KANBAN_SKILLS_END);
 		if (startIdx !== -1 && endIdx !== -1) {
 			updated = existing.slice(0, startIdx) + skillsBlock + existing.slice(endIdx + KANBAN_SKILLS_END.length);
-		} else {
+		} else if (skillsBlock) {
 			updated = existing ? `${existing.trimEnd()}\n\n${skillsBlock}` : skillsBlock;
+		} else {
+			updated = existing;
 		}
 
 		await writeFile(localMdPath, updated, "utf8");
@@ -126,6 +170,8 @@ const SKILL_INJECTORS: Partial<Record<RuntimeAgentId, SkillInjector>> = {
 	claude: new ClaudeSkillInjector(),
 };
 
+// Add the selected skills to a task worktree before its agent starts. Add-only: an empty
+// selection is a no-op so a fresh worktree is never touched needlessly.
 export async function injectSkillsForAgent(
 	agentId: RuntimeAgentId,
 	worktreePath: string,
@@ -135,8 +181,29 @@ export async function injectSkillsForAgent(
 	if (skillNames.length === 0) {
 		return;
 	}
-	await SKILL_INJECTORS[agentId]?.inject(worktreePath, workspacePath, skillNames);
+	const injector = SKILL_INJECTORS[agentId];
+	if (!injector) {
+		return;
+	}
+	await injector.apply(worktreePath, workspacePath, skillNames);
 	// Keep injected skill files out of the task diff. info/exclude is shared across the
 	// common git dir, so passing the workspace repo also covers every worktree.
+	await ensureSkillGitExcludes(workspacePath);
+}
+
+// Make a running task's worktree match the desired skill set exactly: copies in newly
+// selected skills and removes ones that were deselected. Unlike injectSkillsForAgent this
+// applies an empty selection too, so it can clear all Kanban-managed skills.
+export async function syncSkillsForAgent(
+	agentId: RuntimeAgentId,
+	worktreePath: string,
+	workspacePath: string,
+	desiredSkillNames: string[],
+): Promise<void> {
+	const injector = SKILL_INJECTORS[agentId];
+	if (!injector) {
+		return;
+	}
+	await injector.apply(worktreePath, workspacePath, desiredSkillNames);
 	await ensureSkillGitExcludes(workspacePath);
 }

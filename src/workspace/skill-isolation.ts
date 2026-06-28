@@ -5,7 +5,7 @@ import { join } from "node:path";
 /** Visibility states Claude Code accepts in the `skillOverrides` setting. */
 export type ClaudeSkillVisibility = "on" | "name-only" | "user-invocable-only" | "off";
 
-async function listSkillDirNames(root: string): Promise<string[]> {
+export async function listSkillDirNames(root: string): Promise<string[]> {
 	try {
 		const entries = await readdir(root, { withFileTypes: true });
 		return entries.filter((entry) => entry.isDirectory()).map((entry) => entry.name);

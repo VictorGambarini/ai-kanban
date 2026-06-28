@@ -1020,6 +1020,21 @@ export const runtimeTaskSessionStartRequestSchema = z.object({
 });
 export type RuntimeTaskSessionStartRequest = z.infer<typeof runtimeTaskSessionStartRequestSchema>;
 
+/** Sync the skills injected into an already-created task worktree to the given set. */
+export const runtimeTaskSkillsSyncRequestSchema = z.object({
+	taskId: z.string(),
+	baseRef: z.string(),
+	agentId: runtimeAgentIdSchema.optional(),
+	skillNames: z.array(z.string()),
+});
+export type RuntimeTaskSkillsSyncRequest = z.infer<typeof runtimeTaskSkillsSyncRequestSchema>;
+
+export const runtimeTaskSkillsSyncResponseSchema = z.object({
+	ok: z.boolean(),
+	error: z.string().optional(),
+});
+export type RuntimeTaskSkillsSyncResponse = z.infer<typeof runtimeTaskSkillsSyncResponseSchema>;
+
 export const runtimeTaskSessionStartResponseSchema = z.object({
 	ok: z.boolean(),
 	summary: runtimeTaskSessionSummarySchema.nullable(),

@@ -40,13 +40,14 @@ import {
 	parseTaskSessionInputRequest,
 	parseTaskSessionStartRequest,
 	parseTaskSessionStopRequest,
+	parseTaskSkillsSyncRequest,
 } from "../core/api-validation";
 import { isHomeAgentSessionId } from "../core/home-agent-session";
 import { resolveTaskTitle } from "../core/task-title.js";
 import { openInBrowser } from "../server/browser";
 import { buildRuntimeConfigResponse, resolveAgentCommand } from "../terminal/agent-registry";
 import type { TerminalSessionManager } from "../terminal/session-manager";
-import { injectSkillsForAgent } from "../workspace/skill-injector";
+import { injectSkillsForAgent, syncSkillsForAgent } from "../workspace/skill-injector";
 import { resolveTaskCwd } from "../workspace/task-worktree";
 import { captureTaskTurnCheckpoint } from "../workspace/turn-checkpoints";
 import type { RuntimeTrpcContext, RuntimeTrpcWorkspaceScope } from "./app-router";
@@ -165,6 +166,34 @@ export function createRuntimeApi(deps: CreateRuntimeApiDependencies): RuntimeTrp
 			const response = await clineProviderService.updateCustomProvider(body);
 			deps.bumpClineSessionContextVersion?.();
 			return response;
+		},
+		syncTaskSkills: async (workspaceScope, input) => {
+			const body = parseTaskSkillsSyncRequest(input);
+			if (isHomeAgentSessionId(body.taskId)) {
+				return { ok: false, error: "Skills cannot be synced for the home agent session." };
+			}
+			try {
+				// The worktree must already exist for an in-progress/review task; never create one here.
+				const taskCwd = await resolveTaskCwd({
+					cwd: workspaceScope.workspacePath,
+					taskId: body.taskId,
+					baseRef: body.baseRef,
+					ensure: false,
+				});
+				const scopedRuntimeConfig = await deps.loadScopedRuntimeConfig(workspaceScope);
+				const terminalManager = await deps.getScopedTerminalManager(workspaceScope);
+				// Match the agent the task is actually running with: persisted session agent first,
+				// then the card override, then the workspace default (mirrors startTaskSession).
+				const effectiveAgentId =
+					terminalManager.getSummary(body.taskId)?.agentId ?? body.agentId ?? scopedRuntimeConfig.selectedAgentId;
+				if (!effectiveAgentId) {
+					return { ok: false, error: "No agent resolved for this task." };
+				}
+				await syncSkillsForAgent(effectiveAgentId, taskCwd, workspaceScope.workspacePath, body.skillNames);
+				return { ok: true };
+			} catch (error) {
+				return { ok: false, error: error instanceof Error ? error.message : "Skill sync failed." };
+			}
 		},
 		startTaskSession: async (workspaceScope, input) => {
 			try {
