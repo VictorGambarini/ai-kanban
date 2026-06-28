@@ -45,6 +45,7 @@ export interface BoardCard {
 	autoReviewMode?: TaskAutoReviewMode;
 	images?: TaskImage[];
 	agentId?: RuntimeAgentId;
+	cliModel?: string;
 	clineSettings?: RuntimeTaskClineSettings;
 	skillNames?: string[];
 	baseRef: string;

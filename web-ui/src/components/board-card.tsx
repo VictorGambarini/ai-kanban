@@ -462,10 +462,20 @@ export function BoardCard({
 			showReasoningEffort: Boolean(inheritedReasoningEffort),
 		});
 	}, [card.clineSettings, defaultClineModelId]);
+	const cliModelOverrideLabel = useMemo(() => {
+		if (!card.cliModel) {
+			return null;
+		}
+		const entry = card.agentId ? getRuntimeAgentCatalogEntry(card.agentId) : null;
+		const matched = entry?.models?.find((model) => model.value === card.cliModel);
+		return matched ? matched.label : card.cliModel;
+	}, [card.agentId, card.cliModel]);
 	const taskAgentSettingsLabel = useMemo(() => {
-		const parts = [agentOverrideLabel, modelOverrideLabel].filter((value): value is string => Boolean(value));
+		const parts = [agentOverrideLabel, modelOverrideLabel, cliModelOverrideLabel].filter((value): value is string =>
+			Boolean(value),
+		);
 		return parts.length > 0 ? parts.join(" · ") : null;
-	}, [agentOverrideLabel, modelOverrideLabel]);
+	}, [agentOverrideLabel, cliModelOverrideLabel, modelOverrideLabel]);
 
 	const activeDescriptionDisplay = isDescriptionExpanded ? descriptionDisplay.expanded : descriptionDisplay.collapsed;
 

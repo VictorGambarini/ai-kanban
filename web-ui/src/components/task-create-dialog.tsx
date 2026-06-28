@@ -120,6 +120,8 @@ export function TaskCreateDialog({
 	onBranchRefChange,
 	agentId,
 	onAgentIdChange,
+	cliModel,
+	onCliModelChange,
 	clineSettings,
 	onClineSettingsChange,
 	skillNames,
@@ -153,6 +155,8 @@ export function TaskCreateDialog({
 	onBranchRefChange: (value: string) => void;
 	agentId?: RuntimeAgentId | undefined;
 	onAgentIdChange?: (value: RuntimeAgentId | undefined) => void;
+	cliModel?: string | undefined;
+	onCliModelChange?: (value: string | undefined) => void;
 	clineSettings?: RuntimeTaskClineSettings | undefined;
 	onClineSettingsChange?: (value: RuntimeTaskClineSettings | undefined) => void;
 	skillNames?: string[];
@@ -585,6 +589,8 @@ export function TaskCreateDialog({
 						<TaskAgentModelPicker
 							agentId={agentId}
 							onAgentIdChange={onAgentIdChange}
+							cliModel={cliModel}
+							onCliModelChange={onCliModelChange}
 							clineSettings={clineSettings}
 							onClineSettingsChange={onClineSettingsChange}
 							skillNames={skillNames}

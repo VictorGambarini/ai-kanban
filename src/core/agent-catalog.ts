@@ -1,5 +1,10 @@
 import type { RuntimeAgentId } from "./api-contract";
 
+export interface RuntimeAgentModelOption {
+	value: string;
+	label: string;
+}
+
 export interface RuntimeAgentCatalogEntry {
 	id: RuntimeAgentId;
 	label: string;
@@ -7,6 +12,17 @@ export interface RuntimeAgentCatalogEntry {
 	baseArgs: string[];
 	autonomousArgs: string[];
 	installUrl: string;
+	/**
+	 * CLI flag used to pin the model for a single run (for example "--model").
+	 * Only set for agents whose CLI accepts a model override. When absent, the
+	 * per-task model picker is hidden for that agent.
+	 */
+	modelFlag?: string;
+	/**
+	 * Curated list of common models for the picker dropdown. The picker also
+	 * offers a free-text "Custom" entry, so this list need not be exhaustive.
+	 */
+	models?: RuntimeAgentModelOption[];
 }
 
 export const RUNTIME_AGENT_CATALOG: RuntimeAgentCatalogEntry[] = [
@@ -17,6 +33,12 @@ export const RUNTIME_AGENT_CATALOG: RuntimeAgentCatalogEntry[] = [
 		baseArgs: [],
 		autonomousArgs: ["--dangerously-skip-permissions"],
 		installUrl: "https://docs.anthropic.com/en/docs/claude-code/quickstart",
+		modelFlag: "--model",
+		models: [
+			{ value: "opus", label: "Opus" },
+			{ value: "sonnet", label: "Sonnet" },
+			{ value: "haiku", label: "Haiku" },
+		],
 	},
 	{
 		id: "codex",
@@ -25,6 +47,11 @@ export const RUNTIME_AGENT_CATALOG: RuntimeAgentCatalogEntry[] = [
 		baseArgs: [],
 		autonomousArgs: ["--dangerously-bypass-approvals-and-sandbox"],
 		installUrl: "https://github.com/openai/codex",
+		modelFlag: "--model",
+		models: [
+			{ value: "gpt-5-codex", label: "GPT-5 Codex" },
+			{ value: "gpt-5", label: "GPT-5" },
+		],
 	},
 	{
 		id: "cline",
@@ -49,6 +76,11 @@ export const RUNTIME_AGENT_CATALOG: RuntimeAgentCatalogEntry[] = [
 		baseArgs: [],
 		autonomousArgs: ["--auto", "high"],
 		installUrl: "https://docs.factory.ai/cli/getting-started/quickstart",
+		modelFlag: "--model",
+		models: [
+			{ value: "claude-sonnet-4-5", label: "Claude Sonnet 4.5" },
+			{ value: "gpt-5-codex", label: "GPT-5 Codex" },
+		],
 	},
 	{
 		id: "kiro",
@@ -65,6 +97,11 @@ export const RUNTIME_AGENT_CATALOG: RuntimeAgentCatalogEntry[] = [
 		baseArgs: [],
 		autonomousArgs: ["--yolo"],
 		installUrl: "https://github.com/google-gemini/gemini-cli",
+		modelFlag: "--model",
+		models: [
+			{ value: "gemini-2.5-pro", label: "Gemini 2.5 Pro" },
+			{ value: "gemini-2.5-flash", label: "Gemini 2.5 Flash" },
+		],
 	},
 ];
 

@@ -1,5 +1,5 @@
 import * as Collapsible from "@radix-ui/react-collapsible";
-import { getRuntimeLaunchSupportedAgentCatalog } from "@runtime-agent-catalog";
+import { getRuntimeAgentCatalogEntry, getRuntimeLaunchSupportedAgentCatalog } from "@runtime-agent-catalog";
 import { ChevronDown } from "lucide-react";
 import type { ReactElement } from "react";
 import { useCallback, useEffect, useMemo, useState } from "react";
@@ -250,6 +250,72 @@ function cloneTaskClineSettings(settings?: RuntimeTaskClineSettings): RuntimeTas
 	};
 }
 
+const CLI_MODEL_CUSTOM_VALUE = "__custom__";
+
+// Per-task model picker for CLI agents (Claude Code, Codex, Droid, Gemini) whose
+// CLI accepts a model flag. Offers the agent's curated models plus a free-text
+// "Custom" entry. Cline has no modelFlag in the catalog, so this renders nothing
+// for Cline (its provider/model pickers handle model selection instead).
+function CliModelPicker({
+	agentId,
+	cliModel,
+	onCliModelChange,
+}: {
+	agentId: RuntimeAgentId;
+	cliModel: string | undefined;
+	onCliModelChange: (value: string | undefined) => void;
+}): ReactElement | null {
+	const entry = getRuntimeAgentCatalogEntry(agentId);
+	const models = entry?.models ?? [];
+	const curatedValues = useMemo(() => new Set(models.map((model) => model.value)), [models]);
+	// Initialized once per mount. Parents remount via `key={effectiveAgentId}` so a
+	// model carried over from a different agent never sticks when the agent changes.
+	const [isCustom, setIsCustom] = useState(() => Boolean(cliModel && !curatedValues.has(cliModel)));
+
+	if (!entry?.modelFlag) {
+		return null;
+	}
+
+	const selectValue = isCustom ? CLI_MODEL_CUSTOM_VALUE : (cliModel ?? "");
+
+	return (
+		<div className="w-full sm:w-1/2 min-w-0">
+			<span className="text-[11px] text-text-secondary block mb-1">Model</span>
+			<NativeSelect
+				size="sm"
+				fill
+				value={selectValue}
+				onChange={(event) => {
+					const value = event.currentTarget.value;
+					if (value === CLI_MODEL_CUSTOM_VALUE) {
+						setIsCustom(true);
+						return;
+					}
+					setIsCustom(false);
+					onCliModelChange(value || undefined);
+				}}
+			>
+				<option value="">Default</option>
+				{models.map((model) => (
+					<option key={model.value} value={model.value}>
+						{model.label}
+					</option>
+				))}
+				<option value={CLI_MODEL_CUSTOM_VALUE}>Custom…</option>
+			</NativeSelect>
+			{isCustom ? (
+				<input
+					type="text"
+					className="mt-1 h-7 w-full rounded-md border border-border-bright bg-surface-2 px-2 text-[12px] text-text-primary placeholder:text-text-tertiary focus:border-border-focus focus:outline-none"
+					placeholder="Model name (e.g. claude-opus-4-8)"
+					value={cliModel ?? ""}
+					onChange={(event) => onCliModelChange(event.currentTarget.value || undefined)}
+				/>
+			) : null}
+		</div>
+	);
+}
+
 // ---------------------------------------------------------------------------
 // Component: renders Agent, Cline provider, and Cline model pickers
 // ---------------------------------------------------------------------------
@@ -257,6 +323,8 @@ function cloneTaskClineSettings(settings?: RuntimeTaskClineSettings): RuntimeTas
 export function TaskAgentModelPicker({
 	agentId,
 	onAgentIdChange,
+	cliModel,
+	onCliModelChange,
 	clineSettings,
 	onClineSettingsChange,
 	skillNames = [],
@@ -278,6 +346,9 @@ export function TaskAgentModelPicker({
 }: {
 	agentId: RuntimeAgentId | undefined;
 	onAgentIdChange: (value: RuntimeAgentId | undefined) => void;
+	/** Per-task CLI model override (passed to the agent's `--model` flag). */
+	cliModel?: string | undefined;
+	onCliModelChange?: (value: string | undefined) => void;
 	clineSettings?: RuntimeTaskClineSettings | undefined;
 	onClineSettingsChange?: (value: RuntimeTaskClineSettings | undefined) => void;
 	skillNames?: string[];
@@ -514,6 +585,8 @@ export function TaskAgentModelPicker({
 								onChange={(e) => {
 									const value = e.currentTarget.value;
 									onAgentIdChange(value ? (value as RuntimeAgentId) : undefined);
+									// Model selection is agent-specific, so clear any carried-over CLI model.
+									onCliModelChange?.(undefined);
 									if (value !== "cline") {
 										onClineSettingsChange?.(undefined);
 										setReasoningEffort("");
@@ -527,6 +600,14 @@ export function TaskAgentModelPicker({
 								))}
 							</NativeSelect>
 						</div>
+						{effectiveAgentId && onCliModelChange ? (
+							<CliModelPicker
+								key={effectiveAgentId}
+								agentId={effectiveAgentId}
+								cliModel={cliModel}
+								onCliModelChange={onCliModelChange}
+							/>
+						) : null}
 						{showClineProviderPicker ? (
 							<div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
 								<div className="min-w-0">

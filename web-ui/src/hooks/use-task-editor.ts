@@ -52,6 +52,8 @@ export interface UseTaskEditorResult {
 	setNewTaskBranchRef: Dispatch<SetStateAction<string>>;
 	newTaskAgentId: RuntimeAgentId | undefined;
 	setNewTaskAgentId: Dispatch<SetStateAction<RuntimeAgentId | undefined>>;
+	newTaskCliModel: string | undefined;
+	setNewTaskCliModel: Dispatch<SetStateAction<string | undefined>>;
 	newTaskClineSettings: RuntimeTaskClineSettings | undefined;
 	setNewTaskClineSettings: Dispatch<SetStateAction<RuntimeTaskClineSettings | undefined>>;
 	newTaskSkillNames: string[];
@@ -72,6 +74,8 @@ export interface UseTaskEditorResult {
 	setEditTaskBranchRef: Dispatch<SetStateAction<string>>;
 	editTaskAgentId: RuntimeAgentId | undefined;
 	setEditTaskAgentId: Dispatch<SetStateAction<RuntimeAgentId | undefined>>;
+	editTaskCliModel: string | undefined;
+	setEditTaskCliModel: Dispatch<SetStateAction<string | undefined>>;
 	editTaskClineSettings: RuntimeTaskClineSettings | undefined;
 	setEditTaskClineSettings: Dispatch<SetStateAction<RuntimeTaskClineSettings | undefined>>;
 	editTaskSkillNames: string[];
@@ -127,10 +131,12 @@ export function useTaskEditor({
 	const [editTaskBranchRef, setEditTaskBranchRef] = useState("");
 
 	const [newTaskAgentId, setNewTaskAgentId] = useState<RuntimeAgentId | undefined>(undefined);
+	const [newTaskCliModel, setNewTaskCliModel] = useState<string | undefined>(undefined);
 	const [newTaskClineSettings, setNewTaskClineSettings] = useState<RuntimeTaskClineSettings | undefined>(undefined);
 	// New tasks default to the last selection made in this workspace (see skill-preferences).
 	const [newTaskSkillNames, setNewTaskSkillNames] = useState<string[]>(() => readLastUsedSkillNames(currentProjectId));
 	const [editTaskAgentId, setEditTaskAgentId] = useState<RuntimeAgentId | undefined>(undefined);
+	const [editTaskCliModel, setEditTaskCliModel] = useState<string | undefined>(undefined);
 	const [editTaskClineSettings, setEditTaskClineSettings] = useState<RuntimeTaskClineSettings | undefined>(undefined);
 	const [editTaskSkillNames, setEditTaskSkillNames] = useState<string[]>([]);
 
@@ -216,6 +222,7 @@ export function useTaskEditor({
 		setEditTaskImages([]);
 
 		setNewTaskAgentId(undefined);
+		setNewTaskCliModel(undefined);
 		setNewTaskClineSettings(undefined);
 		setNewTaskSkillNames(readLastUsedSkillNames(currentProjectId));
 		setIsInlineTaskCreateOpen(true);
@@ -228,6 +235,7 @@ export function useTaskEditor({
 		setNewTaskImages([]);
 		setNewTaskBranchRef(resolvedDefaultTaskBranchRef);
 		setNewTaskAgentId(undefined);
+		setNewTaskCliModel(undefined);
 		setNewTaskClineSettings(undefined);
 		setNewTaskSkillNames(readLastUsedSkillNames(currentProjectId));
 	}, [currentProjectId, resolvedDefaultTaskBranchRef]);
@@ -252,6 +260,7 @@ export function useTaskEditor({
 			const fallbackBranch = task.baseRef || resolvedDefaultTaskBranchRef;
 			setEditTaskBranchRef(fallbackBranch);
 			setEditTaskAgentId(task.agentId);
+			setEditTaskCliModel(task.cliModel);
 			setEditTaskClineSettings(task.clineSettings);
 			setEditTaskSkillNames(task.skillNames ?? []);
 		},
@@ -296,6 +305,7 @@ export function useTaskEditor({
 				autoReviewMode: editTaskAutoReviewMode,
 				images: editTaskImages,
 				agentId: editTaskAgentId,
+				cliModel: editTaskCliModel,
 				clineSettings: editTaskClineSettings,
 				skillNames: editTaskSkillNames.length > 0 ? editTaskSkillNames : undefined,
 				baseRef,
@@ -311,11 +321,13 @@ export function useTaskEditor({
 		setEditTaskImages([]);
 		setEditTaskBranchRef("");
 		setEditTaskAgentId(undefined);
+		setEditTaskCliModel(undefined);
 		setEditTaskClineSettings(undefined);
 		setEditTaskSkillNames([]);
 		return savedTaskId;
 	}, [
 		editTaskAgentId,
+		editTaskCliModel,
 		editTaskAutoReviewEnabled,
 		editTaskAutoReviewMode,
 		editTaskBranchRef,
@@ -366,6 +378,7 @@ export function useTaskEditor({
 				autoReviewMode: newTaskAutoReviewMode,
 				images: newTaskImages,
 				agentId: newTaskAgentId,
+				cliModel: newTaskCliModel,
 				clineSettings: newTaskClineSettings,
 				skillNames: newTaskSkillNames.length > 0 ? newTaskSkillNames : undefined,
 				baseRef,
@@ -389,6 +402,7 @@ export function useTaskEditor({
 			setNewTaskImages([]);
 			setNewTaskBranchRef(baseRef);
 			setNewTaskAgentId(undefined);
+			setNewTaskCliModel(undefined);
 			setNewTaskClineSettings(undefined);
 			setNewTaskSkillNames(readLastUsedSkillNames(currentProjectId));
 			if (!options?.keepDialogOpen) {
@@ -400,6 +414,7 @@ export function useTaskEditor({
 			board,
 			currentProjectId,
 			newTaskAgentId,
+			newTaskCliModel,
 			newTaskAutoReviewEnabled,
 			newTaskAutoReviewMode,
 			newTaskBranchRef,
@@ -436,6 +451,7 @@ export function useTaskEditor({
 					autoReviewMode: newTaskAutoReviewMode,
 					images: newTaskImages,
 					agentId: newTaskAgentId,
+					cliModel: newTaskCliModel,
 					clineSettings: newTaskClineSettings,
 					skillNames: newTaskSkillNames.length > 0 ? newTaskSkillNames : undefined,
 					baseRef,
@@ -464,6 +480,7 @@ export function useTaskEditor({
 			setNewTaskImages([]);
 			setNewTaskBranchRef(baseRef);
 			setNewTaskAgentId(undefined);
+			setNewTaskCliModel(undefined);
 			setNewTaskClineSettings(undefined);
 			setNewTaskSkillNames(readLastUsedSkillNames(currentProjectId));
 			if (!options?.keepDialogOpen) {
@@ -475,6 +492,7 @@ export function useTaskEditor({
 			board,
 			currentProjectId,
 			newTaskAgentId,
+			newTaskCliModel,
 			newTaskAutoReviewEnabled,
 			newTaskAutoReviewMode,
 			newTaskBranchRef,
@@ -503,10 +521,12 @@ export function useTaskEditor({
 		setEditTaskImages([]);
 		setEditTaskBranchRef("");
 		setEditTaskAgentId(undefined);
+		setEditTaskCliModel(undefined);
 		setEditTaskClineSettings(undefined);
 		setEditTaskSkillNames([]);
 		setNewTaskImages([]);
 		setNewTaskAgentId(undefined);
+		setNewTaskCliModel(undefined);
 		setNewTaskClineSettings(undefined);
 		setNewTaskSkillNames(readLastUsedSkillNames(currentProjectId));
 	}, [currentProjectId]);
@@ -528,6 +548,8 @@ export function useTaskEditor({
 		setNewTaskBranchRef,
 		newTaskAgentId,
 		setNewTaskAgentId,
+		newTaskCliModel,
+		setNewTaskCliModel,
 		newTaskClineSettings,
 		setNewTaskClineSettings,
 		newTaskSkillNames,
@@ -548,6 +570,8 @@ export function useTaskEditor({
 		setEditTaskBranchRef,
 		editTaskAgentId,
 		setEditTaskAgentId,
+		editTaskCliModel,
+		setEditTaskCliModel,
 		editTaskClineSettings,
 		setEditTaskClineSettings,
 		editTaskSkillNames,
