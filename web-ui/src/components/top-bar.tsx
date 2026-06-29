@@ -28,6 +28,7 @@ import { cn } from "@/components/ui/cn";
 import { Dialog, DialogBody, DialogFooter, DialogHeader } from "@/components/ui/dialog";
 import { Spinner } from "@/components/ui/spinner";
 import { Tooltip } from "@/components/ui/tooltip";
+import { MOBILE_TOUCH_TARGET } from "@/components/ui/touch-target";
 import { useIsMobile } from "@/hooks/use-is-mobile";
 import type { RuntimeGitSyncAction, RuntimeProjectShortcut } from "@/runtime/types";
 import {
@@ -41,8 +42,6 @@ import { isMacPlatform } from "@/utils/platform";
 
 type SettingsSection = "shortcuts";
 type CreateShortcutResult = { ok: boolean; message?: string };
-
-const MOBILE_TOUCH_TARGET = "min-w-[44px] min-h-[44px]";
 
 function getWorkspacePathSegments(path: string): string[] {
 	return path
