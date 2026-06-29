@@ -30,6 +30,7 @@ import type {
 	RuntimeFeaturebaseTokenResponse,
 	RuntimeProjectShortcut,
 	RuntimeRunUpdateResponse,
+	RuntimeTaskSkillsSyncResponse,
 	RuntimeUpdateStatusResponse,
 	RuntimeWorkspaceSkill,
 } from "@/runtime/types";
@@ -256,4 +257,14 @@ export async function runRuntimeUpdateNow(workspaceId: string | null): Promise<R
 export async function fetchWorkspaceSkills(workspaceId: string | null): Promise<RuntimeWorkspaceSkill[]> {
 	const trpcClient = getRuntimeTrpcClient(workspaceId);
 	return await trpcClient.workspace.skillsList.query();
+}
+
+// Sync the skills injected into an in-progress/review task's existing worktree to the
+// given set (copies newly selected skills in, removes deselected ones).
+export async function syncTaskSkills(
+	workspaceId: string | null,
+	input: { taskId: string; baseRef: string; agentId?: RuntimeAgentId; skillNames: string[] },
+): Promise<RuntimeTaskSkillsSyncResponse> {
+	const trpcClient = getRuntimeTrpcClient(workspaceId);
+	return await trpcClient.runtime.syncTaskSkills.mutate(input);
 }

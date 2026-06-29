@@ -97,6 +97,23 @@ function normalizeTaskImages(rawImages: unknown): TaskImage[] | undefined {
 	return images.length > 0 ? images : undefined;
 }
 
+function normalizeSkillNames(rawSkillNames: unknown): string[] | undefined {
+	if (!Array.isArray(rawSkillNames)) {
+		return undefined;
+	}
+	const skillNames: string[] = [];
+	for (const rawSkillName of rawSkillNames) {
+		if (typeof rawSkillName !== "string") {
+			continue;
+		}
+		const skillName = rawSkillName.trim();
+		if (skillName && !skillNames.includes(skillName)) {
+			skillNames.push(skillName);
+		}
+	}
+	return skillNames.length > 0 ? skillNames : undefined;
+}
+
 function normalizeTaskClineReasoningEffort(rawReasoningEffort: unknown): RuntimeClineReasoningEffort | undefined {
 	if (
 		rawReasoningEffort === "low" ||
@@ -163,6 +180,7 @@ function normalizeCard(rawCard: unknown): BoardCard | null {
 		clineProviderId?: unknown;
 		clineModelId?: unknown;
 		clineReasoningEffort?: unknown;
+		skillNames?: unknown;
 		createdAt?: unknown;
 		updatedAt?: unknown;
 	};
@@ -184,6 +202,7 @@ function normalizeCard(rawCard: unknown): BoardCard | null {
 		legacyModelId: card.clineModelId,
 		legacyReasoningEffort: card.clineReasoningEffort,
 	});
+	const skillNames = normalizeSkillNames(card.skillNames);
 
 	const now = Date.now();
 
@@ -200,6 +219,7 @@ function normalizeCard(rawCard: unknown): BoardCard | null {
 		baseRef,
 		...(typeof card.agentId === "string" && card.agentId ? { agentId: card.agentId as RuntimeAgentId } : {}),
 		...(clineSettings !== undefined ? { clineSettings } : {}),
+		...(skillNames !== undefined ? { skillNames } : {}),
 		createdAt: typeof card.createdAt === "number" ? card.createdAt : now,
 		updatedAt: typeof card.updatedAt === "number" ? card.updatedAt : now,
 	};
@@ -546,6 +566,14 @@ export function updateTask(board: BoardData, taskId: string, draft: TaskDraft): 
 							: undefined,
 				agentId: draft.agentId,
 				clineSettings: draft.clineSettings,
+				// Preserve existing skills when the draft omits them (e.g. title-only edits);
+				// an explicit empty array clears the selection.
+				skillNames:
+					draft.skillNames === undefined
+						? card.skillNames
+						: draft.skillNames.length > 0
+							? [...draft.skillNames]
+							: undefined,
 				baseRef,
 				updatedAt: Date.now(),
 			};
@@ -608,6 +636,31 @@ export function applyTaskDetailClineSettingsSelection(
 		images: selection.card.images,
 		agentId: settings.agentId,
 		clineSettings: settings.clineSettings ?? undefined,
+		baseRef: selection.card.baseRef,
+	});
+}
+
+// Update the per-task skill selection from the detail view (in-progress/review tickets).
+// Skills apply to any injection-capable agent, so unlike the Cline settings helpers this
+// has no agent gating.
+export function applyTaskDetailSkillSelection(
+	board: BoardData,
+	taskId: string,
+	skillNames: string[],
+): { board: BoardData; updated: boolean } {
+	const selection = findCardSelection(board, taskId);
+	if (!selection) {
+		return { board, updated: false };
+	}
+	return updateTask(board, taskId, {
+		prompt: selection.card.prompt,
+		startInPlanMode: selection.card.startInPlanMode,
+		autoReviewEnabled: selection.card.autoReviewEnabled,
+		autoReviewMode: selection.card.autoReviewMode,
+		images: selection.card.images,
+		agentId: selection.card.agentId,
+		clineSettings: selection.card.clineSettings,
+		skillNames,
 		baseRef: selection.card.baseRef,
 	});
 }

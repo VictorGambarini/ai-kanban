@@ -80,6 +80,8 @@ import type {
 	RuntimeTaskSessionStartResponse,
 	RuntimeTaskSessionStopRequest,
 	RuntimeTaskSessionStopResponse,
+	RuntimeTaskSkillsSyncRequest,
+	RuntimeTaskSkillsSyncResponse,
 	RuntimeTaskWorkspaceInfoRequest,
 	RuntimeTaskWorkspaceInfoResponse,
 	RuntimeUpdateStatusResponse,
@@ -172,6 +174,8 @@ import {
 	runtimeTaskSessionStartResponseSchema,
 	runtimeTaskSessionStopRequestSchema,
 	runtimeTaskSessionStopResponseSchema,
+	runtimeTaskSkillsSyncRequestSchema,
+	runtimeTaskSkillsSyncResponseSchema,
 	runtimeTaskWorkspaceInfoRequestSchema,
 	runtimeTaskWorkspaceInfoResponseSchema,
 	runtimeUpdateStatusResponseSchema,
@@ -228,6 +232,10 @@ export interface RuntimeTrpcContext {
 			scope: RuntimeTrpcWorkspaceScope,
 			input: RuntimeTaskSessionStartRequest,
 		) => Promise<RuntimeTaskSessionStartResponse>;
+		syncTaskSkills: (
+			scope: RuntimeTrpcWorkspaceScope,
+			input: RuntimeTaskSkillsSyncRequest,
+		) => Promise<RuntimeTaskSkillsSyncResponse>;
 		stopTaskSession: (
 			scope: RuntimeTrpcWorkspaceScope,
 			input: RuntimeTaskSessionStopRequest,
@@ -493,6 +501,12 @@ export const runtimeAppRouter = t.router({
 			.output(runtimeTaskSessionStartResponseSchema)
 			.mutation(async ({ ctx, input }) => {
 				return await ctx.runtimeApi.startTaskSession(ctx.workspaceScope, input);
+			}),
+		syncTaskSkills: workspaceProcedure
+			.input(runtimeTaskSkillsSyncRequestSchema)
+			.output(runtimeTaskSkillsSyncResponseSchema)
+			.mutation(async ({ ctx, input }) => {
+				return await ctx.runtimeApi.syncTaskSkills(ctx.workspaceScope, input);
 			}),
 		stopTaskSession: workspaceProcedure
 			.input(runtimeTaskSessionStopRequestSchema)

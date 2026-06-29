@@ -13,7 +13,7 @@ vi.mock("../../../src/workspace/workspace-skill-service", () => ({
 	listSkills: serviceMocks.listSkills,
 }));
 
-import { injectSkillsForAgent } from "../../../src/workspace/skill-injector";
+import { injectSkillsForAgent, syncSkillsForAgent } from "../../../src/workspace/skill-injector";
 
 let root: string;
 let workspace: string;
@@ -138,6 +138,84 @@ describe("injectSkillsForAgent – agents without an injector", () => {
 	it("is a no-op for unregistered agents", async () => {
 		await makeSkill("alpha");
 		await injectSkillsForAgent("codex", worktree, workspace, ["alpha"]);
+		expect(await exists(join(worktree, ".agents/skills/alpha"))).toBe(false);
+	});
+});
+
+describe("syncSkillsForAgent – full desired-state sync", () => {
+	it("removes deselected skills and keeps selected ones (cline)", async () => {
+		await makeSkill("alpha");
+		await makeSkill("beta");
+		await injectSkillsForAgent("cline", worktree, workspace, ["alpha", "beta"]);
+		expect(await exists(join(worktree, ".agents/skills/beta"))).toBe(true);
+
+		await syncSkillsForAgent("cline", worktree, workspace, ["alpha"]);
+
+		expect(await exists(join(worktree, ".agents/skills/alpha"))).toBe(true);
+		expect(await exists(join(worktree, ".agents/skills/beta"))).toBe(false);
+	});
+
+	it("removes deselected skills from both roots and the CLAUDE.local.md index (claude)", async () => {
+		await makeSkill("alpha");
+		await makeSkill("beta");
+		await injectSkillsForAgent("claude", worktree, workspace, ["alpha", "beta"]);
+
+		await syncSkillsForAgent("claude", worktree, workspace, ["alpha"]);
+
+		expect(await exists(join(worktree, ".claude/skills/alpha"))).toBe(true);
+		expect(await exists(join(worktree, ".agents/skills/alpha"))).toBe(true);
+		expect(await exists(join(worktree, ".claude/skills/beta"))).toBe(false);
+		expect(await exists(join(worktree, ".agents/skills/beta"))).toBe(false);
+		const localMd = await readFile(join(worktree, "CLAUDE.local.md"), "utf8");
+		expect(localMd).toContain("alpha");
+		expect(localMd).not.toContain("beta");
+	});
+
+	it("clears all managed skills when the desired set is empty", async () => {
+		await makeSkill("alpha");
+		await injectSkillsForAgent("claude", worktree, workspace, ["alpha"]);
+
+		await syncSkillsForAgent("claude", worktree, workspace, []);
+
+		expect(await exists(join(worktree, ".claude/skills/alpha"))).toBe(false);
+		expect(await exists(join(worktree, ".agents/skills/alpha"))).toBe(false);
+		const localMd = await readFile(join(worktree, "CLAUDE.local.md"), "utf8");
+		expect(localMd).not.toContain("alpha");
+	});
+
+	it("never removes user-authored skill dirs that are not workspace skills", async () => {
+		await makeSkill("alpha");
+		await injectSkillsForAgent("claude", worktree, workspace, ["alpha"]);
+		// A skill the user added by hand to the worktree, unknown to the workspace store.
+		await mkdir(join(worktree, ".claude/skills/handwritten"), { recursive: true });
+		await writeFile(join(worktree, ".claude/skills/handwritten/SKILL.md"), "x\n", "utf8");
+
+		await syncSkillsForAgent("claude", worktree, workspace, []);
+
+		expect(await exists(join(worktree, ".claude/skills/alpha"))).toBe(false);
+		expect(await exists(join(worktree, ".claude/skills/handwritten"))).toBe(true);
+	});
+
+	it("clears a stale 'off' override when a skill is (re)selected (claude)", async () => {
+		await makeSkill("alpha");
+		await mkdir(join(worktree, ".claude"), { recursive: true });
+		await writeFile(
+			join(worktree, ".claude/settings.local.json"),
+			JSON.stringify({ skillOverrides: { alpha: "off", other: "off" } }),
+			"utf8",
+		);
+
+		await syncSkillsForAgent("claude", worktree, workspace, ["alpha"]);
+
+		const settings = JSON.parse(await readFile(join(worktree, ".claude/settings.local.json"), "utf8"));
+		expect(settings.skillOverrides.alpha).toBeUndefined();
+		// Unrelated user overrides are preserved.
+		expect(settings.skillOverrides.other).toBe("off");
+	});
+
+	it("is a no-op for unregistered agents", async () => {
+		await makeSkill("alpha");
+		await syncSkillsForAgent("codex", worktree, workspace, ["alpha"]);
 		expect(await exists(join(worktree, ".agents/skills/alpha"))).toBe(false);
 	});
 });

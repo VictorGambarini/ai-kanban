@@ -8,6 +8,7 @@ import { ClineAgentChatPanel, type ClineAgentChatPanelHandle } from "@/component
 import { ColumnContextPanel } from "@/components/detail-panels/column-context-panel";
 import { type DiffLineComment, DiffViewerPanel } from "@/components/detail-panels/diff-viewer-panel";
 import { FileTreePanel } from "@/components/detail-panels/file-tree-panel";
+import { TaskSkillsButton } from "@/components/skills/task-skills-button";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/components/ui/cn";
 import type { ClineChatActionResult } from "@/hooks/use-cline-chat-runtime-actions";
@@ -327,6 +328,7 @@ export function CardDetailView({
 	inlineTaskEditor,
 	onEditTask,
 	onSaveTaskTitle,
+	onTaskSkillsChanged,
 	onCommitTask,
 	onOpenPrTask,
 	onAgentCommitTask,
@@ -385,6 +387,7 @@ export function CardDetailView({
 	inlineTaskEditor?: ReactNode;
 	onEditTask?: (card: BoardCard) => void;
 	onSaveTaskTitle?: (taskId: string, title: string) => void;
+	onTaskSkillsChanged?: (taskId: string, skillNames: string[]) => void;
 	onCommitTask?: (taskId: string) => void;
 	onOpenPrTask?: (taskId: string) => void;
 	onAgentCommitTask?: (taskId: string) => void;
@@ -701,6 +704,31 @@ export function CardDetailView({
 		/>
 	);
 
+	// Let users add/remove skills on a ticket that's already running or in review. The
+	// editor's skill picker only covers backlog tickets, so this is the equivalent for
+	// started ones — it syncs the worktree files live (see TaskSkillsButton).
+	const showTaskSkillsControl =
+		(selection.column.id === "in_progress" || selection.column.id === "review") &&
+		!!currentProjectId &&
+		!!onTaskSkillsChanged;
+	const agentArea = (
+		<div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
+			{showTaskSkillsControl ? (
+				<div className="flex items-center justify-end gap-2 border-b border-border bg-surface-1 px-2 py-1">
+					<TaskSkillsButton
+						workspaceId={currentProjectId}
+						taskId={selection.card.id}
+						baseRef={selection.card.baseRef}
+						agentId={selection.card.agentId}
+						selectedSkillNames={selection.card.skillNames ?? []}
+						onPersist={(skillNames) => onTaskSkillsChanged?.(selection.card.id, skillNames)}
+					/>
+				</div>
+			) : null}
+			{agentChatPanel}
+		</div>
+	);
+
 	if (isMobile) {
 		return (
 			<div className="flex min-h-0 flex-1 flex-col overflow-hidden bg-surface-0">
@@ -712,7 +740,7 @@ export function CardDetailView({
 							className="min-h-0 min-w-0 flex-1 flex-col"
 							style={{ display: mobileTab === "chat" ? "flex" : "none" }}
 						>
-							{agentChatPanel}
+							{agentArea}
 						</div>
 						{/* Diff panel */}
 						<div
@@ -845,7 +873,7 @@ export function CardDetailView({
 								className="min-h-0 min-w-0"
 								style={{ display: isDiffExpanded ? "none" : "flex", width: agentPanelPercent }}
 							>
-								{agentChatPanel}
+								{agentArea}
 							</div>
 							{!isDiffExpanded ? (
 								<ResizeHandle
