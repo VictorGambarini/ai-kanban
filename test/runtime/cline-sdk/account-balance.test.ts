@@ -24,11 +24,13 @@ const llmsModelMocks = vi.hoisted(() => ({
 
 const localProviderMocks = vi.hoisted(() => ({
 	getLocalProviderModels: vi.fn(),
+	addLocalProvider: vi.fn(),
+	ensureCustomProvidersLoaded: vi.fn(),
 }));
 
 vi.mock("@clinebot/core", () => ({
-	addLocalProvider: vi.fn(),
-	ensureCustomProvidersLoaded: vi.fn(),
+	addLocalProvider: localProviderMocks.addLocalProvider,
+	ensureCustomProvidersLoaded: localProviderMocks.ensureCustomProvidersLoaded,
 	getLocalProviderModels: localProviderMocks.getLocalProviderModels,
 	getValidClineCredentials: vi.fn(),
 	getValidOcaCredentials: vi.fn(),
@@ -97,7 +99,10 @@ vi.mock("../../../src/server/browser.js", () => ({
 	openInBrowser: vi.fn(),
 }));
 
-import { createClineProviderService } from "../../../src/cline-sdk/cline-provider-service";
+import {
+	createClineProviderService,
+	resolveLiteLlmModelListTimeoutMs,
+} from "../../../src/cline-sdk/cline-provider-service";
 
 function setSelectedProviderSettings(
 	settings: {
@@ -194,7 +199,10 @@ describe("getProviderModels", () => {
 		expect(result.models.map((model) => model.id)).toEqual(["gpt-5.4", "litellm-test-alias"]);
 	});
 
-	it("passes configured LiteLLM headers and a bounded timeout signal to model list requests", async () => {
+	it("honors the configured LiteLLM timeout (no 2.5s cap) and passes configured headers", async () => {
+		// Regression for cline/kanban#181: the model-list fetch used to clamp the
+		// budget with Math.min(timeout, 2500), so a slow local endpoint could never
+		// be given more than 2.5s to enumerate models.
 		setSelectedProviderSettings({
 			provider: "litellm",
 			model: "gpt-5.4",
@@ -211,7 +219,8 @@ describe("getProviderModels", () => {
 
 		await createClineProviderService().getProviderModels("litellm");
 
-		expect(timeoutSpy).toHaveBeenCalledWith(2_500);
+		expect(timeoutSpy).toHaveBeenCalledWith(30_000);
+		expect(timeoutSpy).not.toHaveBeenCalledWith(2_500);
 		expect(fetchMock).toHaveBeenCalledWith(
 			"http://127.0.0.1:4000/v1/models",
 			expect.objectContaining({
@@ -224,6 +233,92 @@ describe("getProviderModels", () => {
 			}),
 		);
 		timeoutSpy.mockRestore();
+	});
+
+	it("falls back to the default model-list timeout when none is configured", async () => {
+		setSelectedProviderSettings({
+			provider: "litellm",
+			model: "gpt-5.4",
+			baseUrl: "http://127.0.0.1:4000/v1",
+		});
+		const fetchMock = vi.fn<typeof fetch>(async () => {
+			return new Response(JSON.stringify({ data: [{ id: "litellm-test-alpha" }] }), { status: 200 });
+		});
+		const timeoutSpy = vi.spyOn(AbortSignal, "timeout");
+		vi.stubGlobal("fetch", fetchMock);
+
+		await createClineProviderService().getProviderModels("litellm");
+
+		expect(timeoutSpy).toHaveBeenCalledWith(2_500);
+		timeoutSpy.mockRestore();
+	});
+
+	it("registers disk-persisted custom providers before listing models", async () => {
+		setSelectedProviderSettings({
+			provider: "litellm",
+			model: "gpt-5.4",
+			baseUrl: "http://127.0.0.1:4000/v1",
+		});
+		vi.stubGlobal(
+			"fetch",
+			vi.fn<typeof fetch>(async () => new Response(JSON.stringify({ data: [] }), { status: 200 })),
+		);
+
+		await createClineProviderService().getProviderModels("litellm");
+
+		expect(localProviderMocks.ensureCustomProvidersLoaded).toHaveBeenCalled();
+	});
+});
+
+describe("resolveLiteLlmModelListTimeoutMs", () => {
+	it("honors a positive configured timeout above and below the default", () => {
+		expect(resolveLiteLlmModelListTimeoutMs(30_000)).toBe(30_000);
+		expect(resolveLiteLlmModelListTimeoutMs(500)).toBe(500);
+	});
+
+	it("falls back to the default for missing or non-positive timeouts", () => {
+		expect(resolveLiteLlmModelListTimeoutMs(undefined)).toBe(2_500);
+		expect(resolveLiteLlmModelListTimeoutMs(null)).toBe(2_500);
+		expect(resolveLiteLlmModelListTimeoutMs(0)).toBe(2_500);
+		expect(resolveLiteLlmModelListTimeoutMs(-1)).toBe(2_500);
+	});
+});
+
+describe("addCustomProvider", () => {
+	beforeEach(() => {
+		vi.clearAllMocks();
+		llmsModelMocks.getAllProviders.mockResolvedValue([]);
+		oauthMocks.getProviderSettings.mockImplementation((providerId: string) => ({
+			provider: providerId,
+			baseUrl: "http://127.0.0.1:11434/v1",
+			timeout: 45_000,
+		}));
+	});
+
+	it("round-trips base URL, timeout, and headers through to addLocalProvider", async () => {
+		await createClineProviderService().addCustomProvider({
+			providerId: "my-local",
+			name: "My Local",
+			baseUrl: "http://127.0.0.1:11434/v1",
+			apiKey: "sk-local",
+			headers: { "X-Org": "acme" },
+			timeoutMs: 45_000,
+			models: ["llama-3.1"],
+			defaultModelId: "llama-3.1",
+		});
+
+		expect(localProviderMocks.addLocalProvider).toHaveBeenCalledWith(
+			expect.anything(),
+			expect.objectContaining({
+				providerId: "my-local",
+				baseUrl: "http://127.0.0.1:11434/v1",
+				timeoutMs: 45_000,
+				headers: { "X-Org": "acme" },
+				models: ["llama-3.1"],
+			}),
+		);
+		// Newly added provider must also be registered into the llms registry.
+		expect(localProviderMocks.ensureCustomProvidersLoaded).toHaveBeenCalled();
 	});
 });
 

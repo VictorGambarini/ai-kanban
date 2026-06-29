@@ -26,6 +26,7 @@ import {
 	addSdkCustomProvider,
 	completeClineDeviceAuth as completeSdkDeviceAuth,
 	deleteSdkCustomProvider,
+	ensureSdkCustomProvidersLoaded,
 	fetchSdkClineAccountBalance,
 	fetchSdkClineAccountProfile,
 	fetchSdkClineUserRemoteConfig,
@@ -63,7 +64,9 @@ const LITELLM_MODELS_RESPONSE_SCHEMA = z.object({
 	data: z.array(z.object({ id: z.string().optional(), model_name: z.string().optional() }).passthrough()).optional(),
 });
 const LITELLM_MODEL_LIST_PATHNAMES = ["/models", "/model/info"] as const;
-const LITELLM_MODEL_LIST_TIMEOUT_MS = 2_500;
+// Fallback budget for the LiteLLM model-list fetch when the provider has no
+// configured timeout. A configured `settings.timeout` always takes precedence.
+const LITELLM_MODEL_LIST_DEFAULT_TIMEOUT_MS = 2_500;
 const LOGGER = createKanbanClineLogger({ component: "cline-provider-service" });
 
 type ClineRemoteConfig = z.infer<typeof CLINE_REMOTE_CONFIG_SCHEMA>;
@@ -262,6 +265,15 @@ function resolveLiteLlmModelListItemId(item: LiteLlmModelListItem, pathname: Lit
 	return modelId?.trim() ?? "";
 }
 
+// Resolve the model-list fetch budget. The user-configured timeout is honored
+// verbatim; the hard-coded default only applies when no timeout is set.
+// Previously this was `Math.min(timeout, 2500)`, which capped the budget at 2.5s
+// and made slow local endpoints (Ollama / MLX / LiteLLM) fail to enumerate
+// models — see cline/kanban#181, #164, #301.
+export function resolveLiteLlmModelListTimeoutMs(timeout: number | null | undefined): number {
+	return typeof timeout === "number" && timeout > 0 ? timeout : LITELLM_MODEL_LIST_DEFAULT_TIMEOUT_MS;
+}
+
 async function fetchLiteLlmBaseUrlModels(settings: SdkProviderSettings | null): Promise<RuntimeClineProviderModel[]> {
 	const baseUrl = settings?.baseUrl?.trim() ?? "";
 	if (!settings || (settings.provider?.trim().toLowerCase() ?? "") !== "litellm" || !baseUrl) {
@@ -269,10 +281,7 @@ async function fetchLiteLlmBaseUrlModels(settings: SdkProviderSettings | null): 
 	}
 
 	const headers = resolveLiteLlmModelListHeaders(settings);
-	const timeoutMs =
-		typeof settings.timeout === "number" && settings.timeout > 0
-			? Math.min(settings.timeout, LITELLM_MODEL_LIST_TIMEOUT_MS)
-			: LITELLM_MODEL_LIST_TIMEOUT_MS;
+	const timeoutMs = resolveLiteLlmModelListTimeoutMs(settings.timeout);
 	const normalizedBaseUrl = baseUrl.replace(/\/+$/, "");
 	for (const pathname of LITELLM_MODEL_LIST_PATHNAMES) {
 		const url = `${normalizedBaseUrl}${pathname}`;
@@ -462,6 +471,30 @@ async function refreshManagedOauthSettings(
 export function createClineProviderService() {
 	const getProviderSettingsSummary = (): RuntimeClineProviderSettings =>
 		toProviderSettingsSummary(getSelectedProviderSettings());
+
+	// Re-register disk-persisted custom providers into the llms registry exactly
+	// once per process. The SDK's local in-process backend does not auto-load
+	// these, so without this a custom OpenAI-compatible provider added in a prior
+	// runtime is unknown after a restart and task launch / model listing fail.
+	// Memoized so concurrent callers share a single load; provider add/update
+	// paths register themselves separately via addSdkCustomProvider.
+	let customProvidersLoadPromise: Promise<void> | null = null;
+	const ensureCustomProvidersLoadedOnce = (): Promise<void> => {
+		if (!customProvidersLoadPromise) {
+			customProvidersLoadPromise = ensureSdkCustomProvidersLoaded().catch((error) => {
+				// Reset so a later caller can retry after a transient failure.
+				customProvidersLoadPromise = null;
+				LOGGER.log("Failed to load custom providers into the llms registry.", {
+					severity: "warn",
+					errorMessage: toErrorMessage(error),
+				});
+			});
+		}
+		return customProvidersLoadPromise;
+	};
+
+	// Best-effort eager load at startup so providers are ready before the first launch.
+	void ensureCustomProvidersLoadedOnce();
 
 	// Dedup concurrent fetchSdkClineAccountProfile calls (e.g. balance + orgs on dialog open).
 	// Cached for 5s so back-to-back callers share a single network round-trip.
@@ -784,6 +817,9 @@ export function createClineProviderService() {
 			modelIdOverride?: string;
 			reasoningEffortOverride?: RuntimeClineReasoningEffort | null;
 		}): Promise<ResolvedClineLaunchConfig> {
+			// Self-heal: make sure custom providers are registered before resolving a
+			// launch, even if the eager startup load was skipped or raced this call.
+			await ensureCustomProvidersLoadedOnce();
 			const selectedSettings = overrides?.providerIdOverride
 				? (getSdkProviderSettings(overrides.providerIdOverride) ?? getSelectedProviderSettings())
 				: getSelectedProviderSettings();
@@ -825,6 +861,7 @@ export function createClineProviderService() {
 		},
 
 		async getProviderCatalog(): Promise<RuntimeClineProviderCatalogResponse> {
+			await ensureCustomProvidersLoadedOnce();
 			const selectedProviderId = getProviderSettingsSummary().providerId?.trim().toLowerCase() ?? "";
 			const providers: RuntimeClineProviderCatalogItem[] = await listSdkProviderCatalog()
 				.then((sdkProviders) =>
@@ -871,6 +908,7 @@ export function createClineProviderService() {
 		},
 
 		async getProviderModels(providerId: string): Promise<RuntimeClineProviderModelsResponse> {
+			await ensureCustomProvidersLoadedOnce();
 			const normalizedProviderId = providerId.trim().toLowerCase();
 			let providerModels =
 				normalizedProviderId.length > 0
