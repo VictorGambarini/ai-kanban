@@ -171,6 +171,7 @@ export const runtimeBoardCardSchema = z
 		autoReviewMode: runtimeTaskAutoReviewModeSchema.optional(),
 		images: z.array(runtimeTaskImageSchema).optional(),
 		agentId: runtimeAgentIdSchema.optional(),
+		cliModel: z.string().optional(),
 		clineSettings: runtimeTaskClineSettingsSchema.optional(),
 		skillNames: z.array(z.string()).optional(),
 		clineProviderId: z.string().optional(),
@@ -1015,6 +1016,7 @@ export const runtimeTaskSessionStartRequestSchema = z.object({
 	cols: z.number().int().positive().optional(),
 	rows: z.number().int().positive().optional(),
 	agentId: runtimeAgentIdSchema.optional(),
+	cliModel: z.string().optional(),
 	clineSettings: runtimeTaskClineSettingsSchema.optional(),
 	skillNames: z.array(z.string()).optional(),
 });

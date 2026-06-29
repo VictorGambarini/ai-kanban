@@ -2,7 +2,7 @@ import { access, readFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
-
+import { getRuntimeAgentCatalogEntry } from "../core/agent-catalog";
 import type {
 	RuntimeAgentId,
 	RuntimeHookEvent,
@@ -30,6 +30,8 @@ export interface AgentAdapterLaunchInput {
 	agentId: RuntimeAgentId;
 	binary?: string;
 	args: string[];
+	/** Per-task model override passed to the agent CLI's model flag (for example `--model sonnet`). */
+	cliModel?: string;
 	autonomousModeEnabled?: boolean;
 	cwd: string;
 	prompt: string;
@@ -1437,6 +1439,18 @@ const ADAPTERS: Record<RuntimeAgentId, AgentSessionAdapter> = {
 	cline: clineAdapter,
 };
 
+function applyCliModelArg(agentId: RuntimeAgentId, args: string[], cliModel: string | undefined): string[] {
+	const model = cliModel?.trim();
+	if (!model) {
+		return args;
+	}
+	const modelFlag = getRuntimeAgentCatalogEntry(agentId)?.modelFlag;
+	if (!modelFlag || hasCliOption(args, modelFlag)) {
+		return args;
+	}
+	return [...args, modelFlag, model];
+}
+
 export async function prepareAgentLaunch(input: AgentAdapterLaunchInput): Promise<PreparedAgentLaunch> {
 	const preparedPrompt = await prepareTaskPromptWithImages({
 		prompt: input.prompt,
@@ -1444,6 +1458,7 @@ export async function prepareAgentLaunch(input: AgentAdapterLaunchInput): Promis
 	});
 	return await ADAPTERS[input.agentId].prepare({
 		...input,
+		args: applyCliModelArg(input.agentId, input.args, input.cliModel),
 		prompt: preparedPrompt,
 	});
 }

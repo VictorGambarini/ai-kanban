@@ -271,6 +271,90 @@ describe("per-task agent/model/provider overrides", () => {
 			reasoningEffort: "high",
 		});
 	});
+
+	it("persists and trims cliModel on the card when creating a task", () => {
+		const created = addTaskToColumn(
+			createBoard(),
+			"backlog",
+			{ prompt: "Model task", baseRef: "main", agentId: "claude", cliModel: "  sonnet  " },
+			() => "aaaaa111",
+		);
+
+		expect(created.task.cliModel).toBe("sonnet");
+	});
+
+	it("leaves cliModel undefined when blank or omitted", () => {
+		const omitted = addTaskToColumn(
+			createBoard(),
+			"backlog",
+			{ prompt: "Default task", baseRef: "main" },
+			() => "aaaaa111",
+		);
+		expect(omitted.task.cliModel).toBeUndefined();
+
+		const blank = addTaskToColumn(
+			createBoard(),
+			"backlog",
+			{ prompt: "Blank model task", baseRef: "main", agentId: "claude", cliModel: "   " },
+			() => "bbbbb222",
+		);
+		expect(blank.task.cliModel).toBeUndefined();
+	});
+
+	it("updates cliModel and clears it with null", () => {
+		const created = addTaskToColumn(
+			createBoard(),
+			"backlog",
+			{ prompt: "Task", baseRef: "main", agentId: "codex", cliModel: "gpt-5" },
+			() => "aaaaa111",
+		);
+		expect(created.task.cliModel).toBe("gpt-5");
+
+		const changed = updateTask(created.board, created.task.id, {
+			prompt: "Task",
+			baseRef: "main",
+			cliModel: "gpt-5-codex",
+		});
+		expect(changed.task?.cliModel).toBe("gpt-5-codex");
+
+		const cleared = updateTask(changed.board, created.task.id, {
+			prompt: "Task",
+			baseRef: "main",
+			cliModel: null,
+		});
+		expect(cleared.task?.cliModel).toBeUndefined();
+	});
+
+	it("preserves cliModel when update input omits it (undefined)", () => {
+		const created = addTaskToColumn(
+			createBoard(),
+			"backlog",
+			{ prompt: "Task", baseRef: "main", agentId: "gemini", cliModel: "gemini-2.5-pro" },
+			() => "aaaaa111",
+		);
+
+		const updated = updateTask(created.board, created.task.id, {
+			prompt: "Updated prompt",
+			baseRef: "main",
+			// cliModel undefined, so the existing value should persist
+		});
+
+		expect(updated.task?.cliModel).toBe("gemini-2.5-pro");
+	});
+
+	it("preserves cliModel across move operations", () => {
+		const created = addTaskToColumn(
+			createBoard(),
+			"backlog",
+			{ prompt: "Movable task", baseRef: "main", agentId: "claude", cliModel: "opus" },
+			() => "aaaaa111",
+		);
+
+		const moved = moveTaskToColumn(created.board, created.task.id, "in_progress");
+
+		expect(moved.moved).toBe(true);
+		expect(moved.task?.cliModel).toBe("opus");
+	});
 });
 
 describe("per-task skill selection", () => {

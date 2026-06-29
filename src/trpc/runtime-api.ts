@@ -326,6 +326,7 @@ export function createRuntimeApi(deps: CreateRuntimeApiDependencies): RuntimeTrp
 					agentId: resolved.agentId,
 					binary: resolved.binary,
 					args: resolved.args,
+					cliModel: body.cliModel,
 					autonomousModeEnabled: scopedRuntimeConfig.agentAutonomousModeEnabled,
 					cwd: taskCwd,
 					prompt: body.prompt,

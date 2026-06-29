@@ -910,4 +910,63 @@ describe("board dependency state", () => {
 			reasoningEffort: "medium",
 		});
 	});
+
+	it("persists a CLI model override when creating a task", () => {
+		let board = createInitialBoardData();
+		board = addTaskToColumn(board, "backlog", {
+			prompt: "Task with CLI model",
+			agentId: "claude",
+			cliModel: "opus",
+			baseRef: "main",
+		});
+		const task = board.columns.find((column) => column.id === "backlog")?.cards[0];
+		expect(task?.agentId).toBe("claude");
+		expect(task?.cliModel).toBe("opus");
+	});
+
+	it("preserves a CLI model override when updating the title", () => {
+		let board = createInitialBoardData();
+		board = addTaskToColumn(board, "backlog", {
+			prompt: "Task with CLI model",
+			agentId: "codex",
+			cliModel: "gpt-5-codex",
+			baseRef: "main",
+		});
+		const task = board.columns.find((column) => column.id === "backlog")?.cards[0];
+		expect(task).toBeDefined();
+		if (!task) {
+			throw new Error("Expected backlog task to exist");
+		}
+
+		const updated = updateTaskTitle(board, task.id, "Renamed task");
+		expect(updated.updated).toBe(true);
+		const updatedTask = updated.board.columns.find((column) => column.id === "backlog")?.cards[0];
+		expect(updatedTask?.title).toBe("Renamed task");
+		expect(updatedTask?.agentId).toBe("codex");
+		expect(updatedTask?.cliModel).toBe("gpt-5-codex");
+	});
+
+	it("preserves a CLI model override when disabling auto-review", () => {
+		let board = createInitialBoardData();
+		board = addTaskToColumn(board, "review", {
+			prompt: "Task with CLI model",
+			autoReviewEnabled: true,
+			autoReviewMode: "commit",
+			agentId: "gemini",
+			cliModel: "gemini-2.5-pro",
+			baseRef: "main",
+		});
+		const task = board.columns.find((column) => column.id === "review")?.cards[0];
+		expect(task).toBeDefined();
+		if (!task) {
+			throw new Error("Expected review task to exist");
+		}
+
+		const disabled = disableTaskAutoReview(board, task.id);
+		expect(disabled.updated).toBe(true);
+		const updatedTask = disabled.board.columns.find((column) => column.id === "review")?.cards[0];
+		expect(updatedTask?.autoReviewEnabled).toBe(false);
+		expect(updatedTask?.agentId).toBe("gemini");
+		expect(updatedTask?.cliModel).toBe("gemini-2.5-pro");
+	});
 });

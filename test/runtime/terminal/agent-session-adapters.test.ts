@@ -754,3 +754,104 @@ describe("prepareAgentLaunch hook strategies", () => {
 		expect(kiroLaunch.args).toContain("--trust-all-tools");
 	});
 });
+
+describe("prepareAgentLaunch CLI model selection", () => {
+	function expectModelFlag(args: string[], expectedValue: string): void {
+		const modelIndex = args.indexOf("--model");
+		expect(modelIndex).toBeGreaterThanOrEqual(0);
+		expect(args[modelIndex + 1]).toBe(expectedValue);
+	}
+
+	it("injects --model for model-capable CLIs", async () => {
+		setupTempHome();
+
+		for (const agentId of ["claude", "codex", "droid", "gemini"] as const) {
+			const launch = await prepareAgentLaunch({
+				taskId: `task-${agentId}-model`,
+				agentId,
+				binary: agentId,
+				args: [],
+				cliModel: "sonnet",
+				cwd: "/tmp",
+				prompt: "",
+			});
+			expectModelFlag(launch.args, "sonnet");
+		}
+	});
+
+	it("passes a custom model value through unchanged", async () => {
+		setupTempHome();
+		const launch = await prepareAgentLaunch({
+			taskId: "task-claude-custom-model",
+			agentId: "claude",
+			binary: "claude",
+			args: [],
+			cliModel: "claude-opus-4-8",
+			cwd: "/tmp",
+			prompt: "",
+		});
+		expectModelFlag(launch.args, "claude-opus-4-8");
+	});
+
+	it("places the model flag before the appended prompt", async () => {
+		setupTempHome();
+		const launch = await prepareAgentLaunch({
+			taskId: "task-claude-model-order",
+			agentId: "claude",
+			binary: "claude",
+			args: [],
+			cliModel: "opus",
+			cwd: "/tmp",
+			prompt: "do the thing",
+		});
+		const modelIndex = launch.args.indexOf("--model");
+		const promptIndex = launch.args.indexOf("do the thing");
+		expect(modelIndex).toBeGreaterThanOrEqual(0);
+		expect(promptIndex).toBeGreaterThan(modelIndex);
+	});
+
+	it("does not inject a model for Cline, which has no model flag", async () => {
+		setupTempHome();
+		const launch = await prepareAgentLaunch({
+			taskId: "task-cline-model",
+			agentId: "cline",
+			binary: "cline",
+			args: [],
+			cliModel: "sonnet",
+			cwd: "/tmp",
+			prompt: "",
+		});
+		expect(launch.args).not.toContain("--model");
+		expect(launch.args).not.toContain("sonnet");
+	});
+
+	it("ignores blank model values", async () => {
+		setupTempHome();
+		const launch = await prepareAgentLaunch({
+			taskId: "task-claude-blank-model",
+			agentId: "claude",
+			binary: "claude",
+			args: [],
+			cliModel: "   ",
+			cwd: "/tmp",
+			prompt: "",
+		});
+		expect(launch.args).not.toContain("--model");
+	});
+
+	it("does not duplicate an explicit --model already present in args", async () => {
+		setupTempHome();
+		const launch = await prepareAgentLaunch({
+			taskId: "task-claude-explicit-model",
+			agentId: "claude",
+			binary: "claude",
+			args: ["--model", "haiku"],
+			cliModel: "opus",
+			cwd: "/tmp",
+			prompt: "",
+		});
+		const modelOccurrences = launch.args.filter((arg) => arg === "--model");
+		expect(modelOccurrences).toHaveLength(1);
+		expectModelFlag(launch.args, "haiku");
+	});
+});

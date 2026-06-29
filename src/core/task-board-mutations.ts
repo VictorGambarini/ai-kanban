@@ -20,6 +20,7 @@ export interface RuntimeCreateTaskInput {
 	autoReviewMode?: RuntimeTaskAutoReviewMode;
 	images?: RuntimeTaskImage[];
 	agentId?: RuntimeAgentId;
+	cliModel?: string;
 	clineSettings?: RuntimeTaskClineSettings;
 	skillNames?: string[];
 	baseRef: string;
@@ -33,6 +34,7 @@ export interface RuntimeUpdateTaskInput {
 	autoReviewMode?: RuntimeTaskAutoReviewMode;
 	images?: RuntimeTaskImage[];
 	agentId?: RuntimeAgentId | null;
+	cliModel?: string | null;
 	clineSettings?: RuntimeTaskClineSettings | null;
 	skillNames?: string[] | null;
 	baseRef: string;
@@ -318,6 +320,7 @@ export function addTaskToColumn(
 		autoReviewMode: normalizeTaskAutoReviewMode(input.autoReviewMode),
 		images: cloneTaskImages(input.images),
 		...(input.agentId ? { agentId: input.agentId } : {}),
+		...(input.cliModel?.trim() ? { cliModel: input.cliModel.trim() } : {}),
 		...(input.clineSettings !== undefined ? { clineSettings: cloneTaskClineSettings(input.clineSettings) } : {}),
 		...(cloneTaskSkillNames(input.skillNames) ? { skillNames: cloneTaskSkillNames(input.skillNames) } : {}),
 		baseRef,
@@ -635,6 +638,12 @@ export function updateTask(
 				autoReviewMode: normalizeTaskAutoReviewMode(input.autoReviewMode),
 				images: input.images === undefined ? card.images : cloneTaskImages(input.images),
 				agentId: input.agentId === undefined ? card.agentId : (input.agentId ?? undefined),
+				cliModel:
+					input.cliModel === undefined
+						? card.cliModel
+						: input.cliModel?.trim()
+							? input.cliModel.trim()
+							: undefined,
 				clineSettings:
 					input.clineSettings === undefined
 						? cloneTaskClineSettings(card.clineSettings)
