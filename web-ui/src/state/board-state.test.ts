@@ -568,6 +568,48 @@ describe("board dependency state", () => {
 		]);
 	});
 
+	// Regression: skillNames dropped on board hydration — found by /qa on 2026-06-30
+	// normalizeCard rebuilds each card field-by-field; it omitted skillNames, so a
+	// persisted per-task skill selection vanished on reload (badge/popover showed none
+	// even though the worktree had the skills injected).
+	// Report: .gstack/qa-reports/qa-report-127-0-0-1-2026-06-30.md
+	it("preserves persisted task skillNames when normalizing a board", () => {
+		const rawBoard = {
+			columns: [
+				{
+					id: "review",
+					cards: [
+						{
+							id: "a",
+							prompt: "Task A",
+							startInPlanMode: false,
+							baseRef: "main",
+							// Duplicates, blanks, and non-strings must be discarded; order preserved.
+							skillNames: ["docx", "docx", " pdf ", "", 42],
+						},
+						{
+							id: "b",
+							prompt: "Task B",
+							startInPlanMode: false,
+							baseRef: "main",
+							skillNames: [],
+						},
+					],
+				},
+			],
+			dependencies: [],
+		};
+
+		const normalized = normalizeBoardData(rawBoard);
+		expect(normalized).not.toBeNull();
+		const reviewCards = normalized?.columns.find((column) => column.id === "review")?.cards ?? [];
+		const cardA = reviewCards.find((card) => card.id === "a");
+		const cardB = reviewCards.find((card) => card.id === "b");
+		expect(cardA?.skillNames).toEqual(["docx", "pdf"]);
+		// An empty selection normalizes to undefined (matches updateTask's clear semantics).
+		expect(cardB?.skillNames).toBeUndefined();
+	});
+
 	it("disables auto-review settings for a task", () => {
 		let board = createInitialBoardData();
 		board = addTaskToColumn(board, "review", {

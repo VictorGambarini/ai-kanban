@@ -97,6 +97,23 @@ function normalizeTaskImages(rawImages: unknown): TaskImage[] | undefined {
 	return images.length > 0 ? images : undefined;
 }
 
+function normalizeSkillNames(rawSkillNames: unknown): string[] | undefined {
+	if (!Array.isArray(rawSkillNames)) {
+		return undefined;
+	}
+	const skillNames: string[] = [];
+	for (const rawSkillName of rawSkillNames) {
+		if (typeof rawSkillName !== "string") {
+			continue;
+		}
+		const skillName = rawSkillName.trim();
+		if (skillName && !skillNames.includes(skillName)) {
+			skillNames.push(skillName);
+		}
+	}
+	return skillNames.length > 0 ? skillNames : undefined;
+}
+
 function normalizeTaskClineReasoningEffort(rawReasoningEffort: unknown): RuntimeClineReasoningEffort | undefined {
 	if (
 		rawReasoningEffort === "low" ||
@@ -163,6 +180,7 @@ function normalizeCard(rawCard: unknown): BoardCard | null {
 		clineProviderId?: unknown;
 		clineModelId?: unknown;
 		clineReasoningEffort?: unknown;
+		skillNames?: unknown;
 		createdAt?: unknown;
 		updatedAt?: unknown;
 	};
@@ -184,6 +202,7 @@ function normalizeCard(rawCard: unknown): BoardCard | null {
 		legacyModelId: card.clineModelId,
 		legacyReasoningEffort: card.clineReasoningEffort,
 	});
+	const skillNames = normalizeSkillNames(card.skillNames);
 
 	const now = Date.now();
 
@@ -200,6 +219,7 @@ function normalizeCard(rawCard: unknown): BoardCard | null {
 		baseRef,
 		...(typeof card.agentId === "string" && card.agentId ? { agentId: card.agentId as RuntimeAgentId } : {}),
 		...(clineSettings !== undefined ? { clineSettings } : {}),
+		...(skillNames !== undefined ? { skillNames } : {}),
 		createdAt: typeof card.createdAt === "number" ? card.createdAt : now,
 		updatedAt: typeof card.updatedAt === "number" ? card.updatedAt : now,
 	};
