@@ -406,6 +406,16 @@ async function writeModelsRegistry(state: LocalModelsFile): Promise<void> {
 	await writeFile(resolveModelsPath(), `${JSON.stringify(state, null, 2)}\n`, "utf8");
 }
 
+// Register disk-persisted custom OpenAI-compatible providers into the process
+// llms registry. The SDK only auto-loads these in its hub daemon; the local
+// in-process backend does not, so a custom provider added in a previous runtime
+// process is otherwise unknown after a restart (provider/model resolution then
+// throws "Provider … is not known"). This is idempotent — the SDK guards with an
+// internal loaded-set keyed by the settings file path, so repeated calls are cheap.
+export async function ensureSdkCustomProvidersLoaded(): Promise<void> {
+	await ensureCustomProvidersLoaded(providerManager);
+}
+
 export async function addSdkCustomProvider(input: AddSdkCustomProviderInput): Promise<void> {
 	await addLocalProvider(providerManager, {
 		providerId: input.providerId,
