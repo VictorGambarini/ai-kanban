@@ -53,6 +53,14 @@ import type {
 } from "@/runtime/types";
 import { useRuntimeConfig } from "@/runtime/use-runtime-config";
 import {
+	clampMaxLiveTerminalSessions,
+	DEFAULT_MAX_LIVE_TERMINAL_SESSIONS,
+	getMaxLiveTerminalSessions,
+	MAX_LIVE_TERMINAL_SESSIONS,
+	MIN_LIVE_TERMINAL_SESSIONS,
+	setMaxLiveTerminalSessions,
+} from "@/terminal/terminal-session-limit";
+import {
 	type BrowserNotificationPermission,
 	getBrowserNotificationPermission,
 	requestBrowserNotificationPermission,
@@ -374,6 +382,11 @@ export function RuntimeSettingsDialog({
 	const [readyForReviewNotificationsEnabled, setReadyForReviewNotificationsEnabled] = useState(true);
 	const [initialThemeId, setInitialThemeId] = useState<ThemeId>(readStoredThemeId);
 	const [draftThemeId, setDraftThemeId] = useState<ThemeId>(readStoredThemeId);
+	// Kept as a string draft so the field can be cleared mid-edit; parsed and
+	// clamped on save.
+	const [draftMaxTerminalSessions, setDraftMaxTerminalSessions] = useState<string>(() =>
+		String(getMaxLiveTerminalSessions()),
+	);
 	const [notificationPermission, setNotificationPermission] = useState<BrowserNotificationPermission>("unsupported");
 	const [shortcuts, setShortcuts] = useState<RuntimeProjectShortcut[]>([]);
 	const [commitPromptTemplate, setCommitPromptTemplate] = useState("");
@@ -482,6 +495,13 @@ export function RuntimeSettingsDialog({
 		if (draftThemeId !== initialThemeId) {
 			return true;
 		}
+		const parsedMaxTerminalSessions = Number.parseInt(draftMaxTerminalSessions, 10);
+		const draftMaxTerminalSessionsValue = Number.isNaN(parsedMaxTerminalSessions)
+			? DEFAULT_MAX_LIVE_TERMINAL_SESSIONS
+			: clampMaxLiveTerminalSessions(parsedMaxTerminalSessions);
+		if (draftMaxTerminalSessionsValue !== getMaxLiveTerminalSessions()) {
+			return true;
+		}
 		if (!areRuntimeProjectShortcutsEqual(shortcuts, initialShortcuts)) {
 			return true;
 		}
@@ -501,6 +521,7 @@ export function RuntimeSettingsDialog({
 		clineSettings.hasUnsavedChanges,
 		commitPromptTemplate,
 		config,
+		draftMaxTerminalSessions,
 		draftThemeId,
 		initialAgentAutonomousModeEnabled,
 		initialCommitPromptTemplate,
@@ -716,6 +737,12 @@ export function RuntimeSettingsDialog({
 			saveThemeId(draftThemeId);
 			setInitialThemeId(draftThemeId);
 		}
+		const parsedMaxTerminalSessions = Number.parseInt(draftMaxTerminalSessions, 10);
+		const nextMaxTerminalSessions = Number.isNaN(parsedMaxTerminalSessions)
+			? DEFAULT_MAX_LIVE_TERMINAL_SESSIONS
+			: clampMaxLiveTerminalSessions(parsedMaxTerminalSessions);
+		setMaxLiveTerminalSessions(nextMaxTerminalSessions);
+		setDraftMaxTerminalSessions(String(nextMaxTerminalSessions));
 		onSaved?.();
 		handleDialogOpenChange(false);
 	};
@@ -752,6 +779,7 @@ export function RuntimeSettingsDialog({
 				}
 				setDraftThemeId(persistedThemeId);
 				setInitialThemeId(persistedThemeId);
+				setDraftMaxTerminalSessions(String(getMaxLiveTerminalSessions()));
 			}
 			onOpenChange(nextOpen);
 		},
@@ -1046,6 +1074,40 @@ export function RuntimeSettingsDialog({
 						</Button>
 						<p className="text-text-secondary text-[13px] mt-2 mb-0">
 							Reset sidebar, split pane, and terminal resize customizations back to their defaults.
+						</p>
+
+						<h6 className="text-[12px] font-semibold uppercase tracking-wider text-text-secondary mt-5 mb-2">
+							Terminal sessions
+						</h6>
+						<div className="flex items-center gap-3">
+							<input
+								type="number"
+								inputMode="numeric"
+								min={MIN_LIVE_TERMINAL_SESSIONS}
+								max={MAX_LIVE_TERMINAL_SESSIONS}
+								step={1}
+								value={draftMaxTerminalSessions}
+								onChange={(event) => setDraftMaxTerminalSessions(event.target.value)}
+								onBlur={(event) => {
+									const parsed = Number.parseInt(event.target.value, 10);
+									setDraftMaxTerminalSessions(
+										String(
+											Number.isNaN(parsed)
+												? DEFAULT_MAX_LIVE_TERMINAL_SESSIONS
+												: clampMaxLiveTerminalSessions(parsed),
+										),
+									);
+								}}
+								aria-label="Maximum live terminal sessions"
+								className="h-9 w-24 rounded-md border border-border-bright bg-surface-2 px-3 text-[13px] text-text-primary focus:border-border-focus focus:outline-none"
+							/>
+							<span className="text-text-secondary text-[13px]">live sessions kept in memory</span>
+						</div>
+						<p className="text-text-secondary text-[13px] mt-2 mb-0">
+							Each open agent terminal keeps a scrollback buffer and a GPU renderer resident in this tab. Above
+							this limit the least-recently-used sessions are released to cap memory use, and reopen instantly
+							from the saved session. Default is {DEFAULT_MAX_LIVE_TERMINAL_SESSIONS}; raise it only if you keep
+							many sessions open and have memory to spare.
 						</p>
 					</div>
 					<div data-settings-section="project" />

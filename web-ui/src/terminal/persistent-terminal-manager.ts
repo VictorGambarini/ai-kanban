@@ -20,6 +20,7 @@ import {
 	hasInterruptAcknowledgement,
 	hasLikelyShellPrompt,
 } from "@/terminal/terminal-prompt-heuristics";
+import { getMaxLiveTerminalSessions } from "@/terminal/terminal-session-limit";
 import { isMacPlatform } from "@/utils/platform";
 
 const SHIFT_ENTER_SEQUENCE = "\n";
@@ -166,6 +167,11 @@ class PersistentTerminal {
 	private outputTextDecoder = new TextDecoder();
 	private terminalWriteQueue: Promise<void> = Promise.resolve();
 	private removeTouchScrollListeners: (() => void) | null = null;
+	// The WebGL renderer (GPU context + glyph atlas) is the most expensive part of
+	// a terminal and Chrome caps how many WebGL contexts can be live at once. We
+	// only attach it while the terminal is mounted/visible and dispose it when the
+	// terminal is parked, so parked sessions hold no GPU context.
+	private webglAddon: WebglAddon | null = null;
 	private disposed = false;
 
 	constructor(
@@ -226,17 +232,40 @@ class PersistentTerminal {
 			return true;
 		});
 
+		this.ensureConnected();
+	}
+
+	get isMounted(): boolean {
+		return this.visibleContainer !== null;
+	}
+
+	private attachWebglRenderer(): void {
+		if (this.disposed || this.webglAddon) {
+			return;
+		}
 		try {
 			const webglAddon = new WebglAddon();
 			webglAddon.onContextLoss(() => {
-				webglAddon.dispose();
+				this.detachWebglRenderer();
 			});
 			this.terminal.loadAddon(webglAddon);
+			this.webglAddon = webglAddon;
 		} catch {
 			// Fall back to the default renderer when WebGL is unavailable.
+			this.webglAddon = null;
 		}
+	}
 
-		this.ensureConnected();
+	private detachWebglRenderer(): void {
+		if (!this.webglAddon) {
+			return;
+		}
+		try {
+			this.webglAddon.dispose();
+		} catch {
+			// Ignore renderer teardown failures; the addon may already be gone.
+		}
+		this.webglAddon = null;
 	}
 
 	// xterm has no touch scrolling of its own, and the two buffers scroll by
@@ -635,12 +664,15 @@ class PersistentTerminal {
 		});
 		this.resizeObserver.observe(container);
 		if (options.isVisible !== false) {
+			this.attachWebglRenderer();
 			window.requestAnimationFrame(() => {
 				this.requestResize();
 				if (options.autoFocus) {
 					this.terminal.focus();
 				}
 			});
+		} else {
+			this.detachWebglRenderer();
 		}
 	}
 
@@ -659,6 +691,7 @@ class PersistentTerminal {
 		if (container && this.visibleContainer !== container) {
 			return;
 		}
+		this.detachWebglRenderer();
 		this.visibleContainer = null;
 		clearTerminalGeometry(this.taskId);
 		this.parkingRoot.appendChild(this.hostElement);
@@ -786,25 +819,50 @@ class PersistentTerminal {
 	}
 }
 
+// Insertion order in this Map doubles as least-recently-used order: every access
+// re-inserts the key at the end, so the oldest entries sit at the front and are
+// the first to be evicted once the live-session cap is exceeded.
 const terminals = new Map<string, PersistentTerminal>();
+
+// Dispose the least-recently-used parked terminals until the live count is back
+// within the configured cap. The just-touched terminal and any currently mounted
+// (visible) terminal are never evicted; an evicted session is rebuilt from the
+// server snapshot when reopened.
+function evictExcessPersistentTerminals(protectedKey: string): void {
+	const max = getMaxLiveTerminalSessions();
+	for (const [key, terminal] of terminals) {
+		if (terminals.size <= max) {
+			break;
+		}
+		if (key === protectedKey || terminal.isMounted) {
+			continue;
+		}
+		terminal.dispose();
+		terminals.delete(key);
+	}
+}
 
 export function ensurePersistentTerminal(input: EnsurePersistentTerminalInput): PersistentTerminal {
 	const key = buildKey(input.workspaceId, input.taskId);
-	let terminal = terminals.get(key);
-	if (!terminal) {
-		terminal = new PersistentTerminal(input.taskId, input.workspaceId, {
+	const existing = terminals.get(key);
+	if (existing) {
+		// Re-insert to mark this terminal as most-recently-used.
+		terminals.delete(key);
+		terminals.set(key, existing);
+		existing.setAppearance({
 			cursorColor: input.cursorColor,
 			terminalBackgroundColor: input.terminalBackgroundColor,
 			themeColors: input.themeColors,
 		});
-		terminals.set(key, terminal);
-		return terminal;
+		return existing;
 	}
-	terminal.setAppearance({
+	const terminal = new PersistentTerminal(input.taskId, input.workspaceId, {
 		cursorColor: input.cursorColor,
 		terminalBackgroundColor: input.terminalBackgroundColor,
 		themeColors: input.themeColors,
 	});
+	terminals.set(key, terminal);
+	evictExcessPersistentTerminals(key);
 	return terminal;
 }
 
