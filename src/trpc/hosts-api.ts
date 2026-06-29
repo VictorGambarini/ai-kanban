@@ -25,14 +25,24 @@ export function createHostsApi(deps: CreateHostsApiDependencies): HostsApi {
 		list: async () => ({ hosts: await hostsManager.listSummaries() }),
 		add: async (input) => {
 			const host = await hostsManager.registerHost(input);
-			return { host, status: hostsManager.getStatus(host.id) };
+			return {
+				host,
+				status: hostsManager.getStatus(host.id),
+				runtimeError: hostsManager.getRuntimeError(host.id),
+				runtimeVersion: hostsManager.getRuntimeVersion(host.id),
+			};
 		},
 		update: async ({ hostId, patch }) => {
 			const host = await hostsManager.updateHost(hostId, patch);
 			if (!host) {
 				return null;
 			}
-			return { host, status: hostsManager.getStatus(host.id) };
+			return {
+				host,
+				status: hostsManager.getStatus(host.id),
+				runtimeError: hostsManager.getRuntimeError(host.id),
+				runtimeVersion: hostsManager.getRuntimeVersion(host.id),
+			};
 		},
 		remove: async ({ hostId }) => ({ ok: await hostsManager.removeHost(hostId) }),
 		connect: async ({ hostId }) => await hostsManager.connectHost(hostId),

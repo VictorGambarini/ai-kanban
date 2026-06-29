@@ -29,14 +29,14 @@ function parsePort(value: string | undefined, flag: string): number | undefined 
 }
 
 /**
- * Registers the `hosts` command group for managing remote machines ("vans")
+ * Registers the `hosts` command group for managing remote machines (VMs)
  * that the hub controls over SSH. Commands operate on the persisted registry;
  * a running hub connects registered hosts at startup (or add them live in the UI).
  */
 export function registerHostsCommand(program: Command): void {
 	const hosts = program
 		.command("hosts")
-		.description("Manage remote SSH hosts the hub controls (vans). The hub connects them at startup.");
+		.description("Manage remote SSH hosts (VMs) the hub controls. The hub connects them at startup.");
 
 	hosts
 		.command("add")

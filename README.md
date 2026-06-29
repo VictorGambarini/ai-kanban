@@ -123,24 +123,24 @@ Restart=on-failure
 
 ## Controlling remote agents over SSH (multi-host)
 
-You can run agents on several remote machines ("vans" — VMs, home servers, Tailscale nodes) and drive them from one **hub**. Each van runs its own loopback-bound `ai-kanban` runtime; the hub holds an SSH connection to each van, forwards a local port to that runtime, and proxies host-scoped API/terminal traffic to it. The vans never need to be reachable from your browser — only over SSH from the hub.
+You can run agents on several remote machines (VMs, home servers, Tailscale nodes) and drive them from one **hub**. Each VM runs its own loopback-bound `ai-kanban` runtime; the hub holds an SSH connection to each VM, forwards a local port to that runtime, and proxies host-scoped API/terminal traffic to it. The VMs never need to be reachable from your browser — only over SSH from the hub.
 
-Each van's agents run on the van, where its worktrees, git, diffs, and hooks already work locally. The hub is just the control plane.
+Each VM's agents run on the VM, where its worktrees, git, diffs, and hooks already work locally. The hub is just the control plane.
 
 Register hosts on the hub:
 
 ```bash
 # Key-file auth
-ai-kanban hosts add --label van-one --ssh-host 10.0.0.5 --user agent --identity ~/.ssh/id_ed25519
+ai-kanban hosts add --label vm-one --ssh-host 10.0.0.5 --user agent --identity ~/.ssh/id_ed25519
 
 # SSH-agent auth, custom SSH + runtime ports
-ai-kanban hosts add --ssh-host van-two.tailnet.ts.net --user agent --use-agent --ssh-port 2222 --runtime-port 3484
+ai-kanban hosts add --ssh-host vm-two.tailnet.ts.net --user agent --use-agent --ssh-port 2222 --runtime-port 3484
 
 ai-kanban hosts list
-ai-kanban hosts rm van-one
+ai-kanban hosts rm vm-one
 ```
 
-The hub connects every registered host at startup (you can also add/connect them live from the UI). When a connection comes up, the hub ensures the runtime is running on the van — launching it loopback-bound with `--no-passcode` if needed. To avoid hub/van version drift, the hub launches the van runtime with **`npx`, pinned to the hub's own version** (`npx -y @victorgambarini/ai-kanban@<hub-version>`), so both ends always run the same release. This means each van only needs **Node.js (with `npx`) on its PATH** — no separate global install to keep in sync. The first launch on a van downloads that version (npx caches it afterward). Secrets are never stored: a private key is referenced by **path** (a leading `~` is expanded to the home directory), and any key passphrase is read from an env var you name (`--passphrase-env`), not written to the registry.
+The hub connects every registered host at startup (you can also add/connect them live from the UI). When a connection comes up, the hub ensures the runtime is running on the VM — launching it loopback-bound with `--no-passcode` if needed. To avoid hub/VM version drift, the hub launches the VM runtime with **`npx`, pinned to the hub's own version** (`npx -y @victorgambarini/ai-kanban@<hub-version>`), so both ends always run the same release. This means each VM only needs **Node.js (with `npx`) on its PATH** — no separate global install to keep in sync. The first launch on a VM downloads that version (npx caches it afterward). The hub also reads each VM's reported version (`/api/version`) and flags a mismatch in the switcher. Secrets are never stored: a private key is referenced by **path** (a leading `~` is expanded to the home directory), and any key passphrase is read from an env var you name (`--passphrase-env`), not written to the registry.
 
 | Command / flag | Description |
 | --- | --- |
@@ -151,7 +151,7 @@ The hub connects every registered host at startup (you can also add/connect them
 | `--ssh-port <n>` / `--runtime-port <n>` | SSH port (default 22) / remote runtime port to tunnel (default 3484). |
 | `ai-kanban hosts list` / `rm <id>` | List or remove registered hosts. |
 
-Switch hosts from the sidebar: a host selector at the top of the project panel lets you pick **Local** or any registered van (with live connection status) and add new hosts inline. Selecting a host re-scopes the whole board — projects, terminals, and diffs all come from that machine through the hub's SSH tunnel.
+Switch hosts from the sidebar: a host selector at the top of the project panel lets you pick **Local** or any registered VM (with live connection status and version) and add or edit hosts inline. Selecting a host re-scopes the whole board — projects, terminals, and diffs all come from that machine through the hub's SSH tunnel.
 
 > [!NOTE]
 > Multi-host control is wired end to end: SSH connections + port-forwarding, remote-runtime bootstrap, the request/WebSocket proxy, host management (CLI + tRPC `hosts.*` API + sidebar switcher), and host-namespaced board aggregation. Switching hosts scopes the entire app to the selected machine; rendering cards from *several* hosts in one combined board view (using the aggregation layer) is a possible future enhancement.

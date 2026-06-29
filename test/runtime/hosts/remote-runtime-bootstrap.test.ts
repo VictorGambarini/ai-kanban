@@ -4,6 +4,7 @@ import type { RemoteCommandResult } from "../../../src/hosts/host-types";
 import {
 	createForwardedPortHealthCheck,
 	ensureRemoteRuntime,
+	fetchRemoteRuntimeVersion,
 	type RemoteCommandRunner,
 } from "../../../src/hosts/remote-runtime-bootstrap";
 
@@ -140,5 +141,30 @@ describe("createForwardedPortHealthCheck", () => {
 		const fetchImpl = vi.fn(() => Promise.reject(new Error("ECONNREFUSED")));
 		const check = createForwardedPortHealthCheck(() => 51234, fetchImpl);
 		await expect(check()).resolves.toBe(false);
+	});
+});
+
+describe("fetchRemoteRuntimeVersion", () => {
+	it("returns the version from the /api/version endpoint", async () => {
+		const fetchImpl = vi.fn(() =>
+			Promise.resolve({ ok: true, json: () => Promise.resolve({ version: "0.1.69" }) } as Response),
+		);
+		await expect(fetchRemoteRuntimeVersion(51234, fetchImpl)).resolves.toBe("0.1.69");
+		expect(fetchImpl).toHaveBeenCalledWith("http://127.0.0.1:51234/api/version", { method: "GET" });
+	});
+
+	it("returns null when the endpoint is missing or errors", async () => {
+		const notFound = vi.fn(() => Promise.resolve({ ok: false } as Response));
+		await expect(fetchRemoteRuntimeVersion(51234, notFound)).resolves.toBeNull();
+
+		const threw = vi.fn(() => Promise.reject(new Error("ECONNREFUSED")));
+		await expect(fetchRemoteRuntimeVersion(51234, threw)).resolves.toBeNull();
+	});
+
+	it("returns null when the payload has no string version", async () => {
+		const fetchImpl = vi.fn(() =>
+			Promise.resolve({ ok: true, json: () => Promise.resolve({ version: null }) } as Response),
+		);
+		await expect(fetchRemoteRuntimeVersion(51234, fetchImpl)).resolves.toBeNull();
 	});
 });

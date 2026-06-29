@@ -1,5 +1,5 @@
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
-import { Check, ChevronsUpDown, Monitor, Pencil, Plus, Server, Trash2 } from "lucide-react";
+import { AlertTriangle, Check, ChevronsUpDown, Monitor, Pencil, Plus, Server, Trash2 } from "lucide-react";
 import { type FormEvent, useState } from "react";
 
 import { notifyError } from "@/components/app-toaster";
@@ -11,6 +11,9 @@ import { getActiveHostId, LOCAL_HOST_ID, setActiveHostId } from "@/runtime/activ
 import { type RegisterHostInput, type RemoteHostSummary, type UpdateHostInput, useHosts } from "@/runtime/use-hosts";
 
 type ConnectionState = "disconnected" | "connecting" | "connected" | "error";
+
+/** Version of this hub's build, injected by Vite — compared against each remote runtime. */
+const HUB_VERSION = __APP_VERSION__;
 
 function statusDotClass(state: ConnectionState | null | undefined): string {
 	switch (state) {
@@ -55,7 +58,7 @@ function StatusDot({
 
 /**
  * Sidebar control for picking which machine ("host") the board is scoped to:
- * the local hub or a remote van reached over SSH. Selecting a host re-scopes the
+ * the local hub or a remote VM reached over SSH. Selecting a host re-scopes the
  * whole app (via {@link setActiveHostId}, which reloads).
  */
 export function HostSwitcher(): React.ReactElement | null {
@@ -205,8 +208,14 @@ function RemoteHostMenuItem({
 	onConnect: () => void;
 	onRemove: () => void;
 }): React.ReactElement {
-	const state = (summary.status?.state ?? null) as ConnectionState | null;
-	const errorMessage = state === "error" ? summary.status?.error : null;
+	const sshState = (summary.status?.state ?? null) as ConnectionState | null;
+	// SSH-level failure takes priority; otherwise a runtime that never started
+	// even though the tunnel is up (e.g. the host has no npx).
+	const problem = (sshState === "error" ? summary.status?.error : null) ?? summary.runtimeError ?? null;
+	// A host whose runtime failed is unusable even with SSH "connected", so show it as an error.
+	const state: ConnectionState | null = problem && sshState === "connected" ? "error" : sshState;
+	const remoteVersion = summary.runtimeVersion;
+	const versionMismatch = remoteVersion !== null && remoteVersion !== HUB_VERSION;
 	return (
 		<div className="group rounded-sm px-1 hover:bg-surface-3">
 			<div className="flex items-center gap-1">
@@ -215,9 +224,22 @@ function RemoteHostMenuItem({
 					onClick={onSelect}
 					className="flex min-w-0 flex-1 items-center gap-2 rounded-sm px-1 py-1.5 text-left text-[13px] text-text-primary"
 				>
-					<StatusDot state={state} title={errorMessage ?? undefined} />
+					<StatusDot state={state} title={problem ?? undefined} />
 					<Server size={13} className="shrink-0 text-text-secondary" />
-					<span className="min-w-0 flex-1 truncate">{summary.host.label}</span>
+					<span className="min-w-0 truncate">{summary.host.label}</span>
+					{remoteVersion ? (
+						<span
+							className={cn("shrink-0 text-[10px]", versionMismatch ? "text-status-gold" : "text-text-tertiary")}
+							title={
+								versionMismatch
+									? `Remote runs v${remoteVersion}, hub runs v${HUB_VERSION} — versions may be incompatible.`
+									: `Remote runs v${remoteVersion}`
+							}
+						>
+							{versionMismatch ? <AlertTriangle size={10} className="mr-0.5 inline" /> : null}v{remoteVersion}
+						</span>
+					) : null}
+					<span className="min-w-0 flex-1" />
 					{isActive ? <Check size={14} className="shrink-0 text-accent" /> : null}
 				</button>
 				{state === "error" || state === "disconnected" ? (
@@ -247,9 +269,9 @@ function RemoteHostMenuItem({
 					<Trash2 size={13} />
 				</button>
 			</div>
-			{errorMessage ? (
-				<p className="px-1 pb-1 text-[11px] leading-snug text-status-red" title={errorMessage}>
-					{errorMessage}
+			{problem ? (
+				<p className="px-1 pb-1 text-[11px] leading-snug text-status-red" title={problem}>
+					{problem}
 				</p>
 			) : null}
 		</div>
@@ -359,7 +381,7 @@ function HostFormDialog({
 							className={inputClass}
 							value={values.label}
 							onChange={(e) => set("label", e.target.value)}
-							placeholder="van-one"
+							placeholder="vm-one"
 						/>
 					</Field>
 					<div className="grid grid-cols-2 gap-3">

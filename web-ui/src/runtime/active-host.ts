@@ -7,7 +7,7 @@ import {
 
 /**
  * The "host" is the machine an agent runs on. `"local"` is the hub itself; any
- * other id is a remote host ("van") the hub reaches over SSH. The active host is
+ * other id is a remote host (VM) the hub reaches over SSH. The active host is
  * a scope *above* the workspace/project: it's threaded into every runtime
  * request (the `x-kanban-host-id` header) and WebSocket (the `hostId` query) so
  * the hub proxies that traffic to the selected machine.

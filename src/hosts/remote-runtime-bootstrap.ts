@@ -7,7 +7,7 @@ export type RemoteCommandRunner = (command: string) => Promise<RemoteCommandResu
 export type RemoteRuntimeHealthCheck = () => Promise<boolean>;
 
 export interface EnsureRemoteRuntimeOptions {
-	/** Port the remote runtime should listen on (loopback on the van). */
+	/** Port the remote runtime should listen on (loopback on the VM). */
 	runtimePort: number;
 	/**
 	 * npm package spec to run via `npx`, pinned to the hub's version, e.g.
@@ -127,6 +127,27 @@ export async function ensureRemoteRuntime(
 				`Remote runtime on this host did not become healthy within ${Math.round(healthTimeoutMs / 1000)}s after launch. Check ~/.cline/kanban/remote-runtime.log on the host.`,
 			);
 		}
+	}
+}
+
+/**
+ * Read the remote runtime's reported version through a forwarded loopback port,
+ * via its always-public `/api/version` endpoint. Returns null if unreachable or
+ * if the remote is too old to expose the endpoint.
+ */
+export async function fetchRemoteRuntimeVersion(
+	localPort: number,
+	fetchImpl: typeof globalThis.fetch = globalThis.fetch,
+): Promise<string | null> {
+	try {
+		const response = await fetchImpl(`http://127.0.0.1:${localPort}/api/version`, { method: "GET" });
+		if (!response.ok) {
+			return null;
+		}
+		const data = (await response.json()) as { version?: unknown };
+		return typeof data.version === "string" ? data.version : null;
+	} catch {
+		return null;
 	}
 }
 

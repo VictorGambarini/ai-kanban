@@ -67,6 +67,9 @@ describe("HostsManager + hosts API", () => {
 		expect(listed.hosts).toHaveLength(1);
 		expect(listed.hosts[0]?.host.id).toBe(added.host.id);
 		expect(listed.hosts[0]?.status?.state).toBe("connecting");
+		// No bootstrap has run yet, so no runtime error or version is known.
+		expect(listed.hosts[0]?.runtimeError).toBeNull();
+		expect(listed.hosts[0]?.runtimeVersion).toBeNull();
 
 		// Not connected yet, so there is no forwarded port to proxy to.
 		expect(manager.getForwardedPort(added.host.id)).toBeNull();

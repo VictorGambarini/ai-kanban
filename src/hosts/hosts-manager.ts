@@ -16,6 +16,7 @@ import type {
 import {
 	createForwardedPortHealthCheck,
 	ensureRemoteRuntime,
+	fetchRemoteRuntimeVersion,
 	type RemoteRuntimeBootstrapResult,
 } from "./remote-runtime-bootstrap";
 import { type RemoteHostConnection, RemoteHostConnectionManager } from "./ssh-connection-manager";
@@ -52,6 +53,10 @@ export class HostsManager {
 	private readonly npxPackageSpec: string | null;
 	private readonly warn: (message: string) => void;
 	private readonly bootstrappedHostIds = new Set<string>();
+	/** Last remote-runtime bootstrap failure per host, surfaced to the UI. */
+	private readonly runtimeErrors = new Map<string, string>();
+	/** Remote runtime version per host (from its /api/version), for drift detection. */
+	private readonly runtimeVersions = new Map<string, string>();
 
 	constructor(options: HostsManagerOptions = {}) {
 		this.connectionManager = options.connectionManager ?? new RemoteHostConnectionManager();
@@ -75,7 +80,22 @@ export class HostsManager {
 	/** Hosts paired with their live connection status, for the UI. */
 	async listSummaries(): Promise<RemoteHostSummary[]> {
 		const hosts = await listRemoteHosts();
-		return hosts.map((host) => ({ host, status: this.connectionManager.getStatus(host.id) }));
+		return hosts.map((host) => ({
+			host,
+			status: this.connectionManager.getStatus(host.id),
+			runtimeError: this.runtimeErrors.get(host.id) ?? null,
+			runtimeVersion: this.runtimeVersions.get(host.id) ?? null,
+		}));
+	}
+
+	/** The last remote-runtime bootstrap failure for a host, or null. */
+	getRuntimeError(hostId: string): string | null {
+		return this.runtimeErrors.get(hostId) ?? null;
+	}
+
+	/** The remote runtime version for a host (from its /api/version), or null. */
+	getRuntimeVersion(hostId: string): string | null {
+		return this.runtimeVersions.get(hostId) ?? null;
 	}
 
 	getHost(hostId: string): Promise<RemoteHost | null> {
@@ -102,6 +122,8 @@ export class HostsManager {
 	async removeHost(hostId: string): Promise<boolean> {
 		this.connectionManager.disconnectHost(hostId);
 		this.bootstrappedHostIds.delete(hostId);
+		this.runtimeErrors.delete(hostId);
+		this.runtimeVersions.delete(hostId);
 		return await removeRemoteHost(hostId);
 	}
 
@@ -110,6 +132,10 @@ export class HostsManager {
 		if (!host) {
 			return null;
 		}
+		// Force a clean reconnect so an explicit retry also re-runs bootstrap (a
+		// runtime that failed to start won't re-trigger on an already-open tunnel).
+		this.connectionManager.disconnectHost(hostId);
+		this.bootstrappedHostIds.delete(hostId);
 		const connection = this.beginConnection(host);
 		return connection.getStatus();
 	}
@@ -117,6 +143,8 @@ export class HostsManager {
 	disconnectHost(hostId: string): void {
 		this.connectionManager.disconnectHost(hostId);
 		this.bootstrappedHostIds.delete(hostId);
+		this.runtimeErrors.delete(hostId);
+		this.runtimeVersions.delete(hostId);
 	}
 
 	getStatus(hostId: string): RemoteHostConnectionStatus | null {
@@ -143,6 +171,9 @@ export class HostsManager {
 	}
 
 	private beginConnection(host: RemoteHost): RemoteHostConnection {
+		// A fresh connection attempt invalidates any prior bootstrap failure / version.
+		this.runtimeErrors.delete(host.id);
+		this.runtimeVersions.delete(host.id);
 		const connection = this.connectionManager.connectHost(host);
 		if (this.autoBootstrap) {
 			connection.onStatusChange((status) => {
@@ -164,16 +195,27 @@ export class HostsManager {
 				const status = connection.getStatus();
 				return status.state === "connected" ? status.localPort : null;
 			});
-			return await ensureRemoteRuntime((command) => connection.exec(command), healthCheck, {
+			const result = await ensureRemoteRuntime((command) => connection.exec(command), healthCheck, {
 				runtimePort: host.runtimePort,
 				npxPackageSpec: this.npxPackageSpec ?? undefined,
 			});
+			this.runtimeErrors.delete(host.id);
+			// Record the version the remote actually reports, for drift detection.
+			const localPort = connection.getStatus().localPort;
+			if (localPort !== null) {
+				const version = await fetchRemoteRuntimeVersion(localPort);
+				if (version) {
+					this.runtimeVersions.set(host.id, version);
+				}
+			}
+			return result;
 		} catch (error) {
-			// Allow a future reconnect to retry bootstrap.
+			// Allow a future reconnect to retry bootstrap, and surface the reason to
+			// the UI (the SSH tunnel is up, so the connection status alone looks fine).
 			this.bootstrappedHostIds.delete(host.id);
-			this.warn(
-				`Failed to bootstrap remote runtime on "${host.id}": ${error instanceof Error ? error.message : String(error)}`,
-			);
+			const message = error instanceof Error ? error.message : String(error);
+			this.runtimeErrors.set(host.id, message);
+			this.warn(`Failed to bootstrap remote runtime on "${host.id}": ${message}`);
 			return null;
 		}
 	}

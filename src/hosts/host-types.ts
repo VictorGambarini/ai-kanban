@@ -21,7 +21,7 @@ export interface RemoteHostSshConfig {
 }
 
 /**
- * A remote machine ("van") that runs its own `ai-kanban` runtime bound to
+ * A remote machine (VM) that runs its own `ai-kanban` runtime bound to
  * loopback. The hub reaches it by forwarding a local port to the remote
  * runtime port over the SSH connection described by {@link RemoteHostSshConfig}.
  */
@@ -115,6 +115,15 @@ export const remoteHostConnectionStatusSchema = z.object({
 export const remoteHostSummarySchema = z.object({
 	host: remoteHostSchema,
 	status: remoteHostConnectionStatusSchema.nullable(),
+	/**
+	 * Why the remote runtime failed to start after SSH connected, if it did. This
+	 * is distinct from `status.error` (an SSH-level failure): the tunnel can be up
+	 * (`status.state === "connected"`) while the runtime itself never launched —
+	 * e.g. the host lacks `npx`. Null when bootstrap succeeded or hasn't run.
+	 */
+	runtimeError: z.string().nullable(),
+	/** Version the remote runtime reports (from its /api/version), or null if unknown. Used to flag hub/remote drift. */
+	runtimeVersion: z.string().nullable(),
 });
 export type RemoteHostSummary = z.infer<typeof remoteHostSummarySchema>;
 

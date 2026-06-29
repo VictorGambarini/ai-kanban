@@ -2,8 +2,8 @@ import { readFile } from "node:fs/promises";
 import { createServer, type IncomingMessage } from "node:http";
 import { createServer as createHttpsServer } from "node:https";
 import { join } from "node:path";
-
 import { createHTTPHandler } from "@trpc/server/adapters/standalone";
+import packageJson from "../../package.json" with { type: "json" };
 import { handleClineMcpOauthCallback } from "../cline-sdk/cline-mcp-runtime-service";
 import {
 	type ClineTaskSessionService,
@@ -112,7 +112,7 @@ export async function createRuntimeServer(deps: CreateRuntimeServerDependencies)
 		throw new Error("Could not find web UI assets. Run `npm run build` to generate and package the web UI.");
 	}
 
-	// Manages SSH connections + forwarded ports to remote hosts ("vans"). The
+	// Manages SSH connections + forwarded ports to remote hosts (VMs). The
 	// hub proxies host-scoped API/WS traffic to a host's forwarded loopback port.
 	const hostsManager = new HostsManager({ warn: deps.warn });
 
@@ -293,6 +293,15 @@ export async function createRuntimeServer(deps: CreateRuntimeServerDependencies)
 			const requestUrl = new URL(req.url ?? "/", "http://localhost");
 			const pathname = normalizeRequestPath(requestUrl.pathname);
 
+			// Always-public version probe, used by a hub to detect remote-runtime
+			// version drift. Must sit before the passcode gate so the hub can read
+			// it through the SSH tunnel without authenticating.
+			if (pathname === "/api/version") {
+				res.writeHead(200, { "Content-Type": "application/json; charset=utf-8", "Cache-Control": "no-store" });
+				res.end(JSON.stringify({ version: typeof packageJson.version === "string" ? packageJson.version : null }));
+				return;
+			}
+
 			// ── Passcode gate (remote mode only) ──────────────────────────────
 			const passcodeActive = isRemoteMode && isPasscodeEnabled();
 			if (pathname === "/api/passcode/status") {
@@ -398,7 +407,7 @@ export async function createRuntimeServer(deps: CreateRuntimeServerDependencies)
 			// ── End passcode gate ──────────────────────────────────────────────
 
 			// ── Remote host proxy ──────────────────────────────────────────────
-			// Host-scoped API traffic is forwarded to the selected van's runtime
+			// Host-scoped API traffic is forwarded to the selected VM's runtime
 			// over its SSH-tunnelled loopback port. Unscoped requests (hostId
 			// "local" or absent) are served by this hub as usual.
 			if (pathname.startsWith("/api/")) {
@@ -455,7 +464,7 @@ export async function createRuntimeServer(deps: CreateRuntimeServerDependencies)
 
 	// ── Remote host WebSocket proxy ──────────────────────────────────────────
 	// Registered before the runtime/terminal upgrade handlers so host-scoped
-	// upgrades (terminal IO/control, runtime stream) are tunnelled to the van
+	// upgrades (terminal IO/control, runtime stream) are tunnelled to the VM
 	// before the local handlers claim them. Marks the request handled so the
 	// downstream listeners bail.
 	server.on("upgrade", (request, socket, head) => {
