@@ -466,9 +466,15 @@ export function useBoardInteractions({
 				}
 				if (
 					summary.state === "interrupted" &&
-					previous?.state !== "interrupted" &&
-					columnId &&
-					columnId !== "trash"
+					// Only auto-trash on a genuine live interruption observed in this browser session.
+					// On initial hydration `previous` is undefined, so a session that was already
+					// interrupted in persisted state (e.g. after a runtime restart) stays put and remains
+					// resumable instead of being trashed.
+					previous &&
+					previous.state !== "interrupted" &&
+					// Auto-trash only applies to active work columns. A task sitting in backlog (e.g. one
+					// the user just dragged back, which stops its session) must never be auto-trashed.
+					(columnId === "in_progress" || columnId === "review")
 				) {
 					const nextTaskId = getNextDetailTaskIdAfterTrashMove(nextBoard, summary.taskId);
 					const programmaticMoveAttempt = tryProgrammaticCardMove(summary.taskId, columnId, "trash", {
@@ -630,6 +636,21 @@ export function useBoardInteractions({
 				return;
 			}
 
+			if (moveEvent.toColumnId === "backlog") {
+				// A running agent can't be sent back to Backlog without orphaning its turn. Block the
+				// move and tell the user to stop it first. Any non-running session is stopped; the
+				// worktree is kept so a later restart reuses it.
+				if (sessions[moveEvent.taskId]?.state === "running") {
+					notifyError("Stop the agent before moving this task back to Backlog.");
+					resolvePendingProgrammaticStartMove(moveEvent.taskId, false);
+					return;
+				}
+				setBoard(applied.board);
+				void stopTaskSession(moveEvent.taskId);
+				resolvePendingProgrammaticStartMove(moveEvent.taskId, false);
+				return;
+			}
+
 			setBoard(applied.board);
 
 			if (
@@ -663,8 +684,10 @@ export function useBoardInteractions({
 			resumeTaskFromTrash,
 			resolvePendingProgrammaticStartMove,
 			resolvePendingProgrammaticTrashMove,
+			sessions,
 			setBoard,
 			setSelectedTaskId,
+			stopTaskSession,
 		],
 	);
 

@@ -543,9 +543,18 @@ export class InMemoryClineTaskSessionService implements ClineTaskSessionService 
 		mode?: RuntimeTaskSessionMode,
 		images?: RuntimeTaskImage[],
 	): Promise<RuntimeTaskSessionSummary | null> {
-		const entry = this.messageRepository.getTaskEntry(taskId);
+		let entry = this.messageRepository.getTaskEntry(taskId);
 		if (!entry) {
-			return null;
+			// Runtime restarts clear in-memory task entries while the SDK still has a persisted session.
+			// Rebind first so a restored In Progress/Review task can resume its conversation in place.
+			const reboundSummary = await this.rebindPersistedTaskSession(taskId);
+			if (!reboundSummary) {
+				return null;
+			}
+			entry = this.messageRepository.getTaskEntry(taskId);
+			if (!entry) {
+				return reboundSummary;
+			}
 		}
 		if (
 			entry.summary.state !== "running" &&

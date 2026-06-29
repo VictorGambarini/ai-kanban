@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 
-import { isCardDropDisabled, type ProgrammaticCardMoveInFlight } from "@/state/drag-rules";
+import {
+	isAllowedCrossColumnCardMove,
+	isCardDropDisabled,
+	type ProgrammaticCardMoveInFlight,
+} from "@/state/drag-rules";
 
 describe("drag rules", () => {
 	it("keeps manual in-progress to review drops disabled", () => {
@@ -56,5 +60,18 @@ describe("drag rules", () => {
 
 	it("allows manual trash to review drops", () => {
 		expect(isCardDropDisabled("review", "trash")).toBe(false);
+	});
+
+	it("allows dragging cards back to backlog from any other column", () => {
+		expect(isAllowedCrossColumnCardMove("in_progress", "backlog")).toBe(true);
+		expect(isAllowedCrossColumnCardMove("review", "backlog")).toBe(true);
+		expect(isAllowedCrossColumnCardMove("trash", "backlog")).toBe(true);
+		expect(isAllowedCrossColumnCardMove("backlog", "backlog")).toBe(false);
+
+		expect(isCardDropDisabled("backlog", "in_progress")).toBe(false);
+		expect(isCardDropDisabled("backlog", "review")).toBe(false);
+		expect(isCardDropDisabled("backlog", "trash")).toBe(false);
+		// Reordering within backlog stays enabled.
+		expect(isCardDropDisabled("backlog", "backlog")).toBe(false);
 	});
 });
