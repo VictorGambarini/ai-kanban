@@ -3,6 +3,7 @@ import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
 import { ChevronDown, ChevronUp, Ellipsis, ExternalLink, Info, Lightbulb, Plus, X } from "lucide-react";
 import { type MouseEvent as ReactMouseEvent, type ReactNode, useCallback, useEffect, useRef, useState } from "react";
 import { canShowFeaturebaseFeedbackButton } from "@/components/featurebase-feedback-button";
+import { HostSwitcher } from "@/components/host-switcher";
 import { Button } from "@/components/ui/button";
 import { ClineIcon } from "@/components/ui/cline-icon";
 import { cn } from "@/components/ui/cn";
@@ -312,6 +313,9 @@ export function ProjectNavigationPanel({
 							className="min-w-[44px] min-h-[44px] -mr-2"
 						/>
 					) : null}
+				</div>
+				<div className="-mx-3 mt-2">
+					<HostSwitcher />
 				</div>
 				<div className="mt-2 rounded-md bg-surface-2 border border-border p-1">
 					<div className="grid grid-cols-2 gap-1">

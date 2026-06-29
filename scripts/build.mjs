@@ -1,11 +1,15 @@
 import * as esbuild from "esbuild";
 
 /**
- * Runtime externals. `node-pty` is a native addon with a compiled binding
- * and a spawn-helper binary that must live on disk, so it can't be bundled.
+ * Runtime externals — packages esbuild must not inline.
+ * - `node-pty` is a native addon with a compiled binding and a spawn-helper
+ *   binary that must live on disk.
+ * - `ssh2` (and its optional native dep `cpu-features`) ship prebuilt `.node`
+ *   bindings esbuild can't load; leaving them external lets Node resolve them
+ *   from node_modules at runtime, exactly like node-pty.
  * Everything else esbuild can inline.
  */
-const external = ["node-pty"];
+const external = ["node-pty", "ssh2", "cpu-features"];
 
 /** Bake OTEL telemetry env vars into the bundle at build time. */
 const define = {

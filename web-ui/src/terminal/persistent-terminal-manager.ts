@@ -5,6 +5,7 @@ import { WebLinksAddon } from "@xterm/addon-web-links";
 import { WebglAddon } from "@xterm/addon-webgl";
 import { Terminal } from "@xterm/xterm";
 import { getTerminalThemeColors, type ThemeTerminalColors } from "@/hooks/use-theme";
+import { applyActiveHostToUrl } from "@/runtime/active-host";
 import { estimateTaskSessionGeometry } from "@/runtime/task-session-geometry";
 import { getRuntimeTrpcClient } from "@/runtime/trpc-client";
 import type {
@@ -63,6 +64,7 @@ function getTerminalIoWebSocketUrl(taskId: string, workspaceId: string, clientId
 	url.searchParams.set("taskId", taskId);
 	url.searchParams.set("workspaceId", workspaceId);
 	url.searchParams.set("clientId", clientId);
+	applyActiveHostToUrl(url);
 	return url.toString();
 }
 
@@ -72,6 +74,7 @@ function getTerminalControlWebSocketUrl(taskId: string, workspaceId: string, cli
 	url.searchParams.set("taskId", taskId);
 	url.searchParams.set("workspaceId", workspaceId);
 	url.searchParams.set("clientId", clientId);
+	applyActiveHostToUrl(url);
 	return url.toString();
 }
 

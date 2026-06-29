@@ -4,7 +4,6 @@
 import type { inferRouterInputs, inferRouterOutputs } from "@trpc/server";
 import { initTRPC, TRPCError } from "@trpc/server";
 import { z } from "zod";
-
 import type {
 	RuntimeClineAccountBalanceResponse,
 	RuntimeClineAccountOrganizationsResponse,
@@ -188,6 +187,16 @@ import {
 	runtimeWorktreeEnsureRequestSchema,
 	runtimeWorktreeEnsureResponseSchema,
 } from "../core/api-contract";
+import {
+	type RegisterRemoteHostInput,
+	type RemoteHostConnectionStatus,
+	type RemoteHostSummary,
+	registerRemoteHostInputSchema,
+	remoteHostConnectionStatusSchema,
+	remoteHostSummarySchema,
+	type UpdateRemoteHostInput,
+	updateRemoteHostInputSchema,
+} from "../hosts/host-types";
 
 export interface RuntimeTrpcWorkspaceScope {
 	workspaceId: string;
@@ -384,6 +393,15 @@ export interface RuntimeTrpcContext {
 	};
 	hooksApi: {
 		ingest: (input: RuntimeHookIngestRequest) => Promise<RuntimeHookIngestResponse>;
+	};
+	hostsApi: {
+		list: () => Promise<{ hosts: RemoteHostSummary[] }>;
+		add: (input: RegisterRemoteHostInput) => Promise<RemoteHostSummary>;
+		update: (input: { hostId: string; patch: UpdateRemoteHostInput }) => Promise<RemoteHostSummary | null>;
+		remove: (input: { hostId: string }) => Promise<{ ok: boolean }>;
+		connect: (input: { hostId: string }) => Promise<RemoteHostConnectionStatus | null>;
+		restart: (input: { hostId: string }) => Promise<RemoteHostConnectionStatus | null>;
+		disconnect: (input: { hostId: string }) => Promise<{ ok: boolean }>;
 	};
 }
 
@@ -758,6 +776,47 @@ export const runtimeAppRouter = t.router({
 			.output(runtimeHookIngestResponseSchema)
 			.mutation(async ({ ctx, input }) => {
 				return await ctx.hooksApi.ingest(input);
+			}),
+	}),
+	hosts: t.router({
+		list: t.procedure.output(z.object({ hosts: z.array(remoteHostSummarySchema) })).query(async ({ ctx }) => {
+			return await ctx.hostsApi.list();
+		}),
+		add: t.procedure
+			.input(registerRemoteHostInputSchema)
+			.output(remoteHostSummarySchema)
+			.mutation(async ({ ctx, input }) => {
+				return await ctx.hostsApi.add(input);
+			}),
+		update: t.procedure
+			.input(z.object({ hostId: z.string(), patch: updateRemoteHostInputSchema }))
+			.output(remoteHostSummarySchema.nullable())
+			.mutation(async ({ ctx, input }) => {
+				return await ctx.hostsApi.update(input);
+			}),
+		remove: t.procedure
+			.input(z.object({ hostId: z.string() }))
+			.output(z.object({ ok: z.boolean() }))
+			.mutation(async ({ ctx, input }) => {
+				return await ctx.hostsApi.remove(input);
+			}),
+		connect: t.procedure
+			.input(z.object({ hostId: z.string() }))
+			.output(remoteHostConnectionStatusSchema.nullable())
+			.mutation(async ({ ctx, input }) => {
+				return await ctx.hostsApi.connect(input);
+			}),
+		restart: t.procedure
+			.input(z.object({ hostId: z.string() }))
+			.output(remoteHostConnectionStatusSchema.nullable())
+			.mutation(async ({ ctx, input }) => {
+				return await ctx.hostsApi.restart(input);
+			}),
+		disconnect: t.procedure
+			.input(z.object({ hostId: z.string() }))
+			.output(z.object({ ok: z.boolean() }))
+			.mutation(async ({ ctx, input }) => {
+				return await ctx.hostsApi.disconnect(input);
 			}),
 	}),
 });

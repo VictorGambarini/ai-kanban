@@ -1,5 +1,6 @@
 import { useEffect, useReducer } from "react";
 
+import { applyActiveHostToUrl } from "@/runtime/active-host";
 import type {
 	RuntimeClineMcpServerAuthStatus,
 	RuntimeProjectSummary,
@@ -43,6 +44,7 @@ function getRuntimeStreamUrl(workspaceId: string | null): string {
 	if (workspaceId) {
 		url.searchParams.set("workspaceId", workspaceId);
 	}
+	applyActiveHostToUrl(url);
 	return url.toString();
 }
 
