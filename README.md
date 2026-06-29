@@ -140,7 +140,7 @@ ai-kanban hosts list
 ai-kanban hosts rm van-one
 ```
 
-The hub connects every registered host at startup (you can also add/connect them live from the UI). When a connection comes up, the hub ensures `ai-kanban` is running on the van — launching it loopback-bound with `--no-passcode` if needed — so install it on each van first (`npm i -g @victorgambarini/ai-kanban`). Secrets are never stored: a private key is referenced by **path**, and any key passphrase is read from an env var you name (`--passphrase-env`), not written to the registry.
+The hub connects every registered host at startup (you can also add/connect them live from the UI). When a connection comes up, the hub ensures the runtime is running on the van — launching it loopback-bound with `--no-passcode` if needed. To avoid hub/van version drift, the hub launches the van runtime with **`npx`, pinned to the hub's own version** (`npx -y @victorgambarini/ai-kanban@<hub-version>`), so both ends always run the same release. This means each van only needs **Node.js (with `npx`) on its PATH** — no separate global install to keep in sync. The first launch on a van downloads that version (npx caches it afterward). Secrets are never stored: a private key is referenced by **path** (a leading `~` is expanded to the home directory), and any key passphrase is read from an env var you name (`--passphrase-env`), not written to the registry.
 
 | Command / flag | Description |
 | --- | --- |

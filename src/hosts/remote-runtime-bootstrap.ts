@@ -9,7 +9,15 @@ export type RemoteRuntimeHealthCheck = () => Promise<boolean>;
 export interface EnsureRemoteRuntimeOptions {
 	/** Port the remote runtime should listen on (loopback on the van). */
 	runtimePort: number;
-	/** Remote binary name/path. Defaults to `ai-kanban`. */
+	/**
+	 * npm package spec to run via `npx`, pinned to the hub's version, e.g.
+	 * `@victorgambarini/ai-kanban@0.1.69`. When set, the runtime is launched with
+	 * `npx -y <spec>` so the remote always runs the SAME version as the hub,
+	 * avoiding hub/remote API drift. Requires `npx` (Node.js) on the remote.
+	 * Takes precedence over {@link binary}.
+	 */
+	npxPackageSpec?: string;
+	/** Remote binary name/path, used when {@link npxPackageSpec} is not set. Defaults to `ai-kanban`. */
 	binary?: string;
 	/** Extra arguments appended to the launch command. */
 	extraArgs?: string[];
@@ -32,6 +40,7 @@ export interface RemoteRuntimeBootstrapResult {
 
 const DEFAULT_BINARY = "ai-kanban";
 const DEFAULT_HEALTH_TIMEOUT_MS = 30_000;
+const DEFAULT_NPX_HEALTH_TIMEOUT_MS = 120_000;
 const DEFAULT_HEALTH_INTERVAL_MS = 1_000;
 
 function defaultSleep(ms: number): Promise<void> {
@@ -43,15 +52,19 @@ function shellQuote(value: string): string {
 	return `'${value.replaceAll("'", "'\\''")}'`;
 }
 
+/** The runtime flags every remote launch needs, regardless of how it's invoked. */
+function buildRuntimeArgs(runtimePort: number, extraArgs: string[]): string[] {
+	return ["--host", "127.0.0.1", "--port", String(runtimePort), "--no-open", "--no-passcode", ...extraArgs];
+}
+
 /**
  * Build the command that launches the remote runtime, fully detached so the
  * SSH `exec` channel can close without killing it. Binds to loopback with the
  * passcode disabled — the tunnel is the trust boundary, and the hub reaches it
  * only through the forwarded port.
  */
-function buildLaunchCommand(binary: string, runtimePort: number, extraArgs: string[]): string {
-	const args = ["--host", "127.0.0.1", "--port", String(runtimePort), "--no-open", "--no-passcode", ...extraArgs];
-	const quoted = [binary, ...args].map(shellQuote).join(" ");
+function buildLaunchCommand(commandTokens: string[]): string {
+	const quoted = commandTokens.map(shellQuote).join(" ");
 	const logFile = "$HOME/.cline/kanban/remote-runtime.log";
 	// `setsid` detaches from the SSH session so the process survives channel close.
 	return `mkdir -p "$HOME/.cline/kanban" && setsid sh -c ${shellQuote(`${quoted} >> ${logFile} 2>&1`)} < /dev/null > /dev/null 2>&1 &`;
@@ -69,30 +82,45 @@ export async function ensureRemoteRuntime(
 	options: EnsureRemoteRuntimeOptions,
 ): Promise<RemoteRuntimeBootstrapResult> {
 	const binary = options.binary ?? DEFAULT_BINARY;
+	const useNpx = Boolean(options.npxPackageSpec);
 	const extraArgs = options.extraArgs ?? [];
-	const healthTimeoutMs = options.healthTimeoutMs ?? DEFAULT_HEALTH_TIMEOUT_MS;
+	// First npx run downloads the package, so allow more time before giving up.
+	const healthTimeoutMs =
+		options.healthTimeoutMs ?? (useNpx ? DEFAULT_NPX_HEALTH_TIMEOUT_MS : DEFAULT_HEALTH_TIMEOUT_MS);
 	const healthIntervalMs = options.healthIntervalMs ?? DEFAULT_HEALTH_INTERVAL_MS;
 	const sleep = options.sleep ?? defaultSleep;
 	const now = options.now ?? Date.now;
 
+	// What we report we launched: the pinned package spec, or the direct binary.
+	const launched = useNpx ? (options.npxPackageSpec as string) : binary;
+
 	if (await healthCheck()) {
-		return { outcome: "already-running", binary };
+		return { outcome: "already-running", binary: launched };
 	}
 
-	const whichResult = await runner(`command -v ${shellQuote(binary)} || true`);
+	// npx mode needs Node's `npx` on PATH (it fetches/runs the pinned version);
+	// binary mode needs the `ai-kanban` binary itself.
+	const probeBinary = useNpx ? "npx" : binary;
+	const whichResult = await runner(`command -v ${shellQuote(probeBinary)} || true`);
 	if (whichResult.stdout.trim().length === 0) {
 		throw new Error(
-			`Remote host does not have "${binary}" on its PATH. Install ai-kanban on the host (e.g. \`npm i -g @victorgambarini/ai-kanban\`) and try again.`,
+			useNpx
+				? `Remote host does not have "npx" on its PATH. Install Node.js on the host (npx ships with npm) and try again.`
+				: `Remote host does not have "${binary}" on its PATH. Install ai-kanban on the host (e.g. \`npm i -g @victorgambarini/ai-kanban\`) and try again.`,
 		);
 	}
 
-	await runner(buildLaunchCommand(binary, options.runtimePort, extraArgs));
+	const runtimeArgs = buildRuntimeArgs(options.runtimePort, extraArgs);
+	const commandTokens = useNpx
+		? ["npx", "-y", options.npxPackageSpec as string, ...runtimeArgs]
+		: [binary, ...runtimeArgs];
+	await runner(buildLaunchCommand(commandTokens));
 
 	const deadline = now() + healthTimeoutMs;
 	for (;;) {
 		await sleep(healthIntervalMs);
 		if (await healthCheck()) {
-			return { outcome: "launched", binary };
+			return { outcome: "launched", binary: launched };
 		}
 		if (now() >= deadline) {
 			throw new Error(

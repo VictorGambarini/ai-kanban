@@ -60,6 +60,50 @@ describe("ensureRemoteRuntime", () => {
 		).rejects.toThrow(/does not have "ai-kanban" on its PATH/);
 	});
 
+	it("launches a version-pinned package via npx when npxPackageSpec is set", async () => {
+		const commands: string[] = [];
+		const runner: RemoteCommandRunner = (command) => {
+			commands.push(command);
+			// `command -v npx` probe finds npx.
+			return Promise.resolve(ok(command.includes("command -v") ? "/usr/bin/npx" : ""));
+		};
+		let healthy = false;
+		const healthCheck = vi.fn(() => {
+			const value = healthy;
+			healthy = true;
+			return Promise.resolve(value);
+		});
+
+		const result = await ensureRemoteRuntime(runner, healthCheck, {
+			runtimePort: 3484,
+			npxPackageSpec: "@victorgambarini/ai-kanban@0.1.69",
+			sleep: noSleep,
+		});
+
+		expect(result.outcome).toBe("launched");
+		expect(result.binary).toBe("@victorgambarini/ai-kanban@0.1.69");
+		// Probe must target npx, not the ai-kanban binary.
+		expect(commands.some((command) => command.includes("command -v 'npx'"))).toBe(true);
+		const launchCommand = commands.find((command) => command.includes("setsid"));
+		expect(launchCommand).toBeDefined();
+		expect(launchCommand).toContain("npx");
+		expect(launchCommand).toContain("-y");
+		expect(launchCommand).toContain("@victorgambarini/ai-kanban@0.1.69");
+		expect(launchCommand).toContain("--no-passcode");
+		expect(launchCommand).toContain("3484");
+	});
+
+	it("throws a Node-specific error when npx is missing in npx mode", async () => {
+		const runner: RemoteCommandRunner = () => Promise.resolve(ok("")); // empty `command -v` output
+		await expect(
+			ensureRemoteRuntime(runner, () => Promise.resolve(false), {
+				runtimePort: 3484,
+				npxPackageSpec: "@victorgambarini/ai-kanban@0.1.69",
+				sleep: noSleep,
+			}),
+		).rejects.toThrow(/does not have "npx" on its PATH/);
+	});
+
 	it("times out if the runtime never becomes healthy after launch", async () => {
 		const runner: RemoteCommandRunner = (command) =>
 			Promise.resolve(ok(command.includes("command -v") ? "/usr/bin/ai-kanban" : ""));

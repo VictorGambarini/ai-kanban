@@ -1,3 +1,4 @@
+import packageJson from "../../package.json" with { type: "json" };
 import {
 	getRemoteHost,
 	listRemoteHosts,
@@ -19,10 +20,23 @@ import {
 } from "./remote-runtime-bootstrap";
 import { type RemoteHostConnection, RemoteHostConnectionManager } from "./ssh-connection-manager";
 
+/** Default npm package spec used to launch the remote runtime via npx, pinned to this hub's version. */
+function defaultNpxPackageSpec(): string | null {
+	const name = typeof packageJson.name === "string" ? packageJson.name : null;
+	const version = typeof packageJson.version === "string" ? packageJson.version : null;
+	return name && version ? `${name}@${version}` : null;
+}
+
 export interface HostsManagerOptions {
 	connectionManager?: RemoteHostConnectionManager;
 	/** Whether to launch the remote runtime when a connection comes up. Defaults to true. */
 	autoBootstrap?: boolean;
+	/**
+	 * npm package spec launched on the remote via `npx`, pinning the remote runtime
+	 * to the hub's version. Defaults to `<this package>@<this version>`. Pass `null`
+	 * to fall back to a directly-installed `ai-kanban` binary on the remote.
+	 */
+	npxPackageSpec?: string | null;
 	warn?: (message: string) => void;
 }
 
@@ -35,12 +49,14 @@ export interface HostsManagerOptions {
 export class HostsManager {
 	private readonly connectionManager: RemoteHostConnectionManager;
 	private readonly autoBootstrap: boolean;
+	private readonly npxPackageSpec: string | null;
 	private readonly warn: (message: string) => void;
 	private readonly bootstrappedHostIds = new Set<string>();
 
 	constructor(options: HostsManagerOptions = {}) {
 		this.connectionManager = options.connectionManager ?? new RemoteHostConnectionManager();
 		this.autoBootstrap = options.autoBootstrap ?? true;
+		this.npxPackageSpec = options.npxPackageSpec === undefined ? defaultNpxPackageSpec() : options.npxPackageSpec;
 		this.warn = options.warn ?? (() => {});
 	}
 
@@ -150,6 +166,7 @@ export class HostsManager {
 			});
 			return await ensureRemoteRuntime((command) => connection.exec(command), healthCheck, {
 				runtimePort: host.runtimePort,
+				npxPackageSpec: this.npxPackageSpec ?? undefined,
 			});
 		} catch (error) {
 			// Allow a future reconnect to retry bootstrap.
