@@ -39,6 +39,11 @@ export function isAllowedCrossColumnCardMove(
 	if (fromColumnId === "trash" && toColumnId === "review") {
 		return true;
 	}
+	// Allow sending a card back to Backlog from any other column. A running agent is blocked at
+	// drop time (with a clear reason) rather than here, where session state is unavailable.
+	if (toColumnId === "backlog" && fromColumnId !== "backlog") {
+		return true;
+	}
 	if (
 		(fromColumnId === "in_progress" && toColumnId === "review") ||
 		(fromColumnId === "review" && toColumnId === "in_progress")
@@ -80,7 +85,13 @@ export function isCardDropDisabled(
 		});
 	}
 	if (columnId === "backlog") {
-		return activeDragSourceColumnId !== "backlog";
+		if (activeDragSourceColumnId === "backlog") {
+			return false;
+		}
+		return !isAllowedCrossColumnCardMove(activeDragSourceColumnId, columnId, {
+			taskId: options?.activeDragTaskId,
+			programmaticCardMoveInFlight: options?.programmaticCardMoveInFlight,
+		});
 	}
 	if (columnId === "in_progress") {
 		if (activeDragSourceColumnId === "backlog" || activeDragSourceColumnId === "in_progress") {

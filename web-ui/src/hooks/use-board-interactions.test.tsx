@@ -1,3 +1,4 @@
+import type { DropResult } from "@hello-pangea/dnd";
 import { act, type Dispatch, type SetStateAction, useEffect, useState } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -5,7 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { useBoardInteractions } from "@/hooks/use-board-interactions";
 import type { UseTaskSessionsResult } from "@/hooks/use-task-sessions";
 import type { RuntimeTaskSessionSummary } from "@/runtime/types";
-import type { BoardCard, BoardData } from "@/types";
+import type { BoardCard, BoardColumnId, BoardData } from "@/types";
 
 const notifyErrorMock = vi.hoisted(() => vi.fn());
 const showAppToastMock = vi.hoisted(() => vi.fn());
@@ -69,6 +70,19 @@ interface HookSnapshot {
 	handleRestoreTaskFromTrash: (taskId: string) => void;
 	handleStartTask: (taskId: string) => void;
 	handleCardSelect: (taskId: string) => void;
+	handleDragEnd: (result: DropResult, options?: { selectDroppedTask?: boolean }) => void;
+}
+
+function createCardDropResult(taskId: string, fromColumnId: BoardColumnId, toColumnId: BoardColumnId): DropResult {
+	return {
+		draggableId: taskId,
+		type: "CARD",
+		reason: "DROP",
+		source: { droppableId: fromColumnId, index: 0 },
+		destination: { droppableId: toColumnId, index: 0 },
+		mode: "FLUID",
+		combine: null,
+	};
 }
 
 function createRect(width: number, height: number): DOMRect {
@@ -92,6 +106,9 @@ function HookHarness({
 	startTaskSession,
 	selectedCard = null,
 	setSelectedTaskIdOverride,
+	initialSessions,
+	controlledSessions,
+	stopTaskSession = NOOP_STOP_SESSION,
 	onSnapshot,
 }: {
 	board: BoardData;
@@ -100,9 +117,18 @@ function HookHarness({
 	startTaskSession: UseTaskSessionsResult["startTaskSession"];
 	selectedCard?: { card: BoardCard; column: { id: "backlog" | "in_progress" | "review" | "trash" } } | null;
 	setSelectedTaskIdOverride?: Dispatch<SetStateAction<string | null>>;
+	initialSessions?: Record<string, RuntimeTaskSessionSummary>;
+	controlledSessions?: Record<string, RuntimeTaskSessionSummary>;
+	stopTaskSession?: (taskId: string) => Promise<void>;
 	onSnapshot?: (snapshot: HookSnapshot) => void;
 }): null {
-	const [sessions, setSessions] = useState<Record<string, RuntimeTaskSessionSummary>>({});
+	const [internalSessions, setInternalSessions] = useState<Record<string, RuntimeTaskSessionSummary>>(
+		initialSessions ?? {},
+	);
+	const sessions = controlledSessions ?? internalSessions;
+	const setSessions: Dispatch<SetStateAction<Record<string, RuntimeTaskSessionSummary>>> = controlledSessions
+		? () => {}
+		: setInternalSessions;
 	const [, setSelectedTaskId] = useState<string | null>(null);
 	const [, setIsClearTrashDialogOpen] = useState(false);
 	const [, setIsGitHistoryOpen] = useState(false);
@@ -118,7 +144,7 @@ function HookHarness({
 		setSelectedTaskId: setSelectedTaskIdOverride ?? setSelectedTaskId,
 		setIsClearTrashDialogOpen,
 		setIsGitHistoryOpen,
-		stopTaskSession: NOOP_STOP_SESSION,
+		stopTaskSession,
 		cleanupTaskWorkspace: NOOP_CLEANUP_WORKSPACE,
 		ensureTaskWorkspace,
 		startTaskSession,
@@ -134,11 +160,54 @@ function HookHarness({
 			handleRestoreTaskFromTrash: actions.handleRestoreTaskFromTrash,
 			handleStartTask: actions.handleStartTask,
 			handleCardSelect: actions.handleCardSelect,
+			handleDragEnd: actions.handleDragEnd,
 		});
-	}, [actions.handleCardSelect, actions.handleRestoreTaskFromTrash, actions.handleStartTask, onSnapshot]);
+	}, [
+		actions.handleCardSelect,
+		actions.handleDragEnd,
+		actions.handleRestoreTaskFromTrash,
+		actions.handleStartTask,
+		onSnapshot,
+	]);
 
 	return null;
 }
+
+function createSessionSummary(taskId: string, state: RuntimeTaskSessionSummary["state"]): RuntimeTaskSessionSummary {
+	return {
+		taskId,
+		state,
+		agentId: "cline",
+		workspacePath: `/tmp/${taskId}`,
+		pid: null,
+		startedAt: Date.now() - 1_000,
+		updatedAt: Date.now(),
+		lastOutputAt: Date.now(),
+		reviewReason: state === "interrupted" ? "interrupted" : null,
+		exitCode: null,
+		lastHookAt: null,
+		latestHookActivity: null,
+	};
+}
+
+const PROGRAMMATIC_CARD_MOVES_UNAVAILABLE = {
+	handleProgrammaticCardMoveReady: () => {},
+	setRequestMoveTaskToTrashHandler: () => {},
+	tryProgrammaticCardMove: () => "unavailable" as const,
+	consumeProgrammaticCardMove: () => ({}),
+	resolvePendingProgrammaticTrashMove: () => {},
+	waitForProgrammaticCardMoveAvailability: async () => {},
+	resetProgrammaticCardMoves: () => {},
+	requestMoveTaskToTrashWithAnimation: async () => {},
+	programmaticCardMoveCycle: 0,
+};
+
+const LINKED_BACKLOG_TASK_ACTIONS_NOOP = {
+	handleCreateDependency: () => {},
+	handleDeleteDependency: () => {},
+	confirmMoveTaskToTrash: async () => {},
+	requestMoveTaskToTrash: async () => {},
+};
 
 describe("useBoardInteractions", () => {
 	let container: HTMLDivElement;
@@ -676,5 +745,200 @@ describe("useBoardInteractions", () => {
 		});
 
 		expect(setSelectedTaskId).not.toHaveBeenCalled();
+	});
+
+	it("does not auto-trash a session that is already interrupted on initial hydration", async () => {
+		useProgrammaticCardMovesMock.mockReturnValue(PROGRAMMATIC_CARD_MOVES_UNAVAILABLE);
+		useLinkedBacklogTaskActionsMock.mockReturnValue(LINKED_BACKLOG_TASK_ACTIONS_NOOP);
+
+		const reviewTask = createTask("task-review", "Review task", 2);
+		let currentBoard: BoardData = {
+			columns: [
+				{ id: "backlog", title: "Backlog", cards: [] },
+				{ id: "in_progress", title: "In Progress", cards: [] },
+				{ id: "review", title: "Review", cards: [reviewTask] },
+				{ id: "trash", title: "Done", cards: [] },
+			],
+			dependencies: [],
+		};
+		const setBoard = vi.fn<Dispatch<SetStateAction<BoardData>>>((nextBoard) => {
+			currentBoard = typeof nextBoard === "function" ? nextBoard(currentBoard) : nextBoard;
+		});
+
+		await act(async () => {
+			root.render(
+				<HookHarness
+					board={currentBoard}
+					setBoard={setBoard}
+					ensureTaskWorkspace={async () => ({ ok: true as const })}
+					startTaskSession={async () => ({ ok: true as const })}
+					initialSessions={{ "task-review": createSessionSummary("task-review", "interrupted") }}
+				/>,
+			);
+			for (let i = 0; i < 5; i++) {
+				await Promise.resolve();
+			}
+		});
+
+		const trashIds = currentBoard.columns.find((column) => column.id === "trash")?.cards.map((card) => card.id);
+		const reviewIds = currentBoard.columns.find((column) => column.id === "review")?.cards.map((card) => card.id);
+		expect(trashIds).toEqual([]);
+		expect(reviewIds).toEqual(["task-review"]);
+	});
+
+	it("blocks dragging a task with a running agent back to backlog", async () => {
+		let latestSnapshot: HookSnapshot | null = null;
+		useProgrammaticCardMovesMock.mockReturnValue(PROGRAMMATIC_CARD_MOVES_UNAVAILABLE);
+		useLinkedBacklogTaskActionsMock.mockReturnValue(LINKED_BACKLOG_TASK_ACTIONS_NOOP);
+
+		const runningTask = createTask("task-running", "Running task", 2);
+		let currentBoard: BoardData = {
+			columns: [
+				{ id: "backlog", title: "Backlog", cards: [] },
+				{ id: "in_progress", title: "In Progress", cards: [runningTask] },
+				{ id: "review", title: "Review", cards: [] },
+				{ id: "trash", title: "Done", cards: [] },
+			],
+			dependencies: [],
+		};
+		const setBoard = vi.fn<Dispatch<SetStateAction<BoardData>>>((nextBoard) => {
+			currentBoard = typeof nextBoard === "function" ? nextBoard(currentBoard) : nextBoard;
+		});
+		const stopTaskSession = vi.fn(async () => {});
+
+		await act(async () => {
+			root.render(
+				<HookHarness
+					board={currentBoard}
+					setBoard={setBoard}
+					ensureTaskWorkspace={async () => ({ ok: true as const })}
+					startTaskSession={async () => ({ ok: true as const })}
+					initialSessions={{ "task-running": createSessionSummary("task-running", "running") }}
+					stopTaskSession={stopTaskSession}
+					onSnapshot={(snapshot) => {
+						latestSnapshot = snapshot;
+					}}
+				/>,
+			);
+		});
+
+		if (!latestSnapshot) {
+			throw new Error("Expected a hook snapshot.");
+		}
+
+		await act(async () => {
+			latestSnapshot!.handleDragEnd(createCardDropResult("task-running", "in_progress", "backlog"));
+		});
+
+		expect(notifyErrorMock).toHaveBeenCalledWith("Stop the agent before moving this task back to Backlog.");
+		expect(stopTaskSession).not.toHaveBeenCalled();
+		const inProgressIds = currentBoard.columns
+			.find((column) => column.id === "in_progress")
+			?.cards.map((card) => card.id);
+		expect(inProgressIds).toEqual(["task-running"]);
+	});
+
+	it("sends a non-running task back to backlog and stops its session", async () => {
+		let latestSnapshot: HookSnapshot | null = null;
+		useProgrammaticCardMovesMock.mockReturnValue(PROGRAMMATIC_CARD_MOVES_UNAVAILABLE);
+		useLinkedBacklogTaskActionsMock.mockReturnValue(LINKED_BACKLOG_TASK_ACTIONS_NOOP);
+
+		const reviewTask = createTask("task-review", "Review task", 2);
+		let currentBoard: BoardData = {
+			columns: [
+				{ id: "backlog", title: "Backlog", cards: [] },
+				{ id: "in_progress", title: "In Progress", cards: [] },
+				{ id: "review", title: "Review", cards: [reviewTask] },
+				{ id: "trash", title: "Done", cards: [] },
+			],
+			dependencies: [],
+		};
+		const setBoard = vi.fn<Dispatch<SetStateAction<BoardData>>>((nextBoard) => {
+			currentBoard = typeof nextBoard === "function" ? nextBoard(currentBoard) : nextBoard;
+		});
+		const stopTaskSession = vi.fn(async () => {});
+
+		await act(async () => {
+			root.render(
+				<HookHarness
+					board={currentBoard}
+					setBoard={setBoard}
+					ensureTaskWorkspace={async () => ({ ok: true as const })}
+					startTaskSession={async () => ({ ok: true as const })}
+					initialSessions={{ "task-review": createSessionSummary("task-review", "awaiting_review") }}
+					stopTaskSession={stopTaskSession}
+					onSnapshot={(snapshot) => {
+						latestSnapshot = snapshot;
+					}}
+				/>,
+			);
+		});
+
+		if (!latestSnapshot) {
+			throw new Error("Expected a hook snapshot.");
+		}
+
+		await act(async () => {
+			latestSnapshot!.handleDragEnd(createCardDropResult("task-review", "review", "backlog"));
+		});
+
+		expect(notifyErrorMock).not.toHaveBeenCalled();
+		expect(stopTaskSession).toHaveBeenCalledWith("task-review");
+		const backlogIds = currentBoard.columns.find((column) => column.id === "backlog")?.cards.map((card) => card.id);
+		expect(backlogIds).toEqual(["task-review"]);
+	});
+
+	it("does not auto-trash a backlog card when its stopped session reports interrupted", async () => {
+		useProgrammaticCardMovesMock.mockReturnValue(PROGRAMMATIC_CARD_MOVES_UNAVAILABLE);
+		useLinkedBacklogTaskActionsMock.mockReturnValue(LINKED_BACKLOG_TASK_ACTIONS_NOOP);
+
+		// The card already lives in backlog (it was just dragged back). Its session transitions
+		// awaiting_review -> interrupted as the stop completes; the reconcile must leave it in backlog.
+		const backlogTask = createTask("task-back", "Backlog task", 2);
+		let currentBoard: BoardData = {
+			columns: [
+				{ id: "backlog", title: "Backlog", cards: [backlogTask] },
+				{ id: "in_progress", title: "In Progress", cards: [] },
+				{ id: "review", title: "Review", cards: [] },
+				{ id: "trash", title: "Done", cards: [] },
+			],
+			dependencies: [],
+		};
+		const setBoard = vi.fn<Dispatch<SetStateAction<BoardData>>>((nextBoard) => {
+			currentBoard = typeof nextBoard === "function" ? nextBoard(currentBoard) : nextBoard;
+		});
+
+		await act(async () => {
+			root.render(
+				<HookHarness
+					board={currentBoard}
+					setBoard={setBoard}
+					ensureTaskWorkspace={async () => ({ ok: true as const })}
+					startTaskSession={async () => ({ ok: true as const })}
+					controlledSessions={{ "task-back": createSessionSummary("task-back", "awaiting_review") }}
+				/>,
+			);
+		});
+
+		// The stop completes: the session is now interrupted (a live transition from awaiting_review).
+		await act(async () => {
+			root.render(
+				<HookHarness
+					board={currentBoard}
+					setBoard={setBoard}
+					ensureTaskWorkspace={async () => ({ ok: true as const })}
+					startTaskSession={async () => ({ ok: true as const })}
+					controlledSessions={{ "task-back": createSessionSummary("task-back", "interrupted") }}
+				/>,
+			);
+			for (let i = 0; i < 5; i++) {
+				await Promise.resolve();
+			}
+		});
+
+		const trashIds = currentBoard.columns.find((column) => column.id === "trash")?.cards.map((card) => card.id);
+		const backlogIds = currentBoard.columns.find((column) => column.id === "backlog")?.cards.map((card) => card.id);
+		expect(trashIds).toEqual([]);
+		expect(backlogIds).toEqual(["task-back"]);
 	});
 });

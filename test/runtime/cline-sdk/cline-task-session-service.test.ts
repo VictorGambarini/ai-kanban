@@ -1108,6 +1108,52 @@ describe("InMemoryClineTaskSessionService", () => {
 		});
 	});
 
+	it("rebinds a persisted session on send when no in-memory entry exists after a restart", async () => {
+		const { service, runtime } = createTrackedService();
+		runtime.readPersistedTaskSessionMock.mockResolvedValue({
+			record: {
+				sessionId: "task-1-persisted",
+				source: "core" as ClinePersistedTaskSessionSnapshot["record"]["source"],
+				status: "completed",
+				startedAt: "2026-03-17T10:00:00.000Z",
+				updatedAt: "2026-03-17T10:05:00.000Z",
+				interactive: true,
+				provider: "anthropic",
+				model: "claude-sonnet-4-6",
+				cwd: "/tmp/worktree",
+				workspaceRoot: "/tmp/workspace-root",
+				enableTools: true,
+				enableSpawn: false,
+				enableTeams: false,
+				isSubagent: false,
+			},
+			messages: [
+				{
+					role: "user",
+					content: "Recovered prompt",
+				},
+				{
+					role: "assistant",
+					content: "Recovered answer",
+				},
+			],
+		});
+
+		// No prior startTaskSession/rebind: this mimics a fresh runtime after a restart where the
+		// in-memory entry is gone but the SDK still has the persisted session.
+		const nextSummary = await service.sendTaskSessionInput("task-1", "Continue");
+
+		expect(nextSummary?.state).toBe("running");
+		expect(runtime.readPersistedTaskSessionMock).toHaveBeenCalledWith("task-1");
+		await vi.waitFor(() => {
+			expect(service.listMessages("task-1").map((message) => message.content)).toEqual([
+				"Recovered prompt",
+				"Recovered answer",
+				"Continue",
+			]);
+		});
+	});
+
 	it("resolves workflow prompts for follow-up input before sending to the SDK runtime", async () => {
 		const runtime = createFakeClineSessionRuntime();
 		const runtimeSetup = createFakeRuntimeSetup();
