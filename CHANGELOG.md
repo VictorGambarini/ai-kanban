@@ -1,6 +1,6 @@
 # Changelog
 
-## [0.1.70]
+## [0.1.71]
 
 - Control remote machines ("VMs") from one hub: register hosts over SSH in the new host switcher and scope the whole board to a local or remote machine
 - The hub launches the remote runtime automatically over SSH, pinned to the hub's own version via `npx` so the two never drift; remote runtime errors and the running version are surfaced in the switcher
@@ -8,6 +8,11 @@
 - New "Restart runtime" action (↻) on each connected host re-launches the remote runtime so newly-installed agents on the VM are picked up without manual SSH
 - Edit a registered host's connection details in place, and recover from an unreachable remote host by switching back to the local hub
 - Private key paths starting with `~` are expanded before use
+
+## [0.1.70]
+
+- Fixed the Claude Code agent terminal on mobile: its output no longer wraps to a narrow column and now uses the full screen width
+- Fixed touch scrolling in the agent terminal on mobile — a single-finger drag now scrolls the buffer, including full-screen TUIs like Claude Code that previously couldn't be scrolled by touch at all
 
 ## [0.1.69]
 

@@ -24,6 +24,7 @@ import { isMacPlatform } from "@/utils/platform";
 
 const SHIFT_ENTER_SEQUENCE = "\n";
 const RESIZE_DEBOUNCE_MS = 50;
+const APPROX_TERMINAL_CELL_HEIGHT_PX = 16;
 const INTERRUPT_IDLE_SETTLE_MS = 250;
 const PARKING_ROOT_ID = "kb-persistent-terminal-parking-root";
 
@@ -164,6 +165,7 @@ class PersistentTerminal {
 	private restoreCompleted = false;
 	private outputTextDecoder = new TextDecoder();
 	private terminalWriteQueue: Promise<void> = Promise.resolve();
+	private removeTouchScrollListeners: (() => void) | null = null;
 	private disposed = false;
 
 	constructor(
@@ -197,6 +199,7 @@ class PersistentTerminal {
 		this.terminal.loadAddon(this.unicode11Addon);
 		this.terminal.unicode.activeVersion = "11";
 		this.terminal.open(this.hostElement);
+		this.setupTouchScrolling();
 		this.terminal.onData((data) => {
 			this.sendIoData(data);
 		});
@@ -234,6 +237,88 @@ class PersistentTerminal {
 		}
 
 		this.ensureConnected();
+	}
+
+	// xterm has no touch scrolling of its own, and the two buffers scroll by
+	// completely different mechanisms, so a single-finger drag has to be routed to
+	// the right one:
+	//   - Normal buffer (a shell): scroll xterm's own scrollback via `scrollLines`.
+	//   - Alternate buffer (a full-screen TUI like Claude Code): there is no
+	//     scrollback, so `scrollLines` is inert. These apps enable mouse tracking
+	//     and scroll in response to wheel input, so we replay the drag as a `wheel`
+	//     on `.xterm-screen` — xterm forwards it to the app as the exact same mouse
+	//     sequence a desktop wheel produces. (Synthetic wheels do not drive xterm's
+	//     own scrollback, which is why the normal buffer still uses `scrollLines`.)
+	private setupTouchScrolling(): void {
+		const element = this.terminal.element;
+		if (!element) {
+			return;
+		}
+		let lastTouchY: number | null = null;
+		let scrollRemainderPx = 0;
+
+		const onTouchStart = (event: TouchEvent) => {
+			const touch = event.touches.length === 1 ? event.touches[0] : null;
+			lastTouchY = touch ? touch.clientY : null;
+			scrollRemainderPx = 0;
+		};
+
+		const onTouchMove = (event: TouchEvent) => {
+			const touch = event.touches.length === 1 ? event.touches[0] : null;
+			if (lastTouchY === null || !touch) {
+				return;
+			}
+			// Finger moving down yields a negative delta — scrolling up to reveal
+			// earlier output (natural content-tracking touch scrolling). This matches
+			// the sign of both a wheel's deltaY and `scrollLines`.
+			const deltaY = lastTouchY - touch.clientY;
+			lastTouchY = touch.clientY;
+			if (deltaY === 0) {
+				return;
+			}
+
+			if (this.terminal.buffer.active.type === "alternate") {
+				const screen = element.querySelector(".xterm-screen") ?? element;
+				screen.dispatchEvent(
+					new WheelEvent("wheel", {
+						deltaY,
+						deltaMode: WheelEvent.DOM_DELTA_PIXEL,
+						clientX: touch.clientX,
+						clientY: touch.clientY,
+						bubbles: true,
+						cancelable: true,
+					}),
+				);
+			} else {
+				const cellHeight =
+					this.terminal.rows > 0 ? element.clientHeight / this.terminal.rows : APPROX_TERMINAL_CELL_HEIGHT_PX;
+				const totalPx = deltaY + scrollRemainderPx;
+				const deltaRows = Math.trunc(totalPx / cellHeight);
+				if (deltaRows !== 0) {
+					this.terminal.scrollLines(deltaRows);
+					scrollRemainderPx = totalPx - deltaRows * cellHeight;
+				} else {
+					scrollRemainderPx = totalPx;
+				}
+			}
+			event.preventDefault();
+		};
+
+		const onTouchEnd = () => {
+			lastTouchY = null;
+			scrollRemainderPx = 0;
+		};
+
+		element.addEventListener("touchstart", onTouchStart, { passive: true });
+		element.addEventListener("touchmove", onTouchMove, { passive: false });
+		element.addEventListener("touchend", onTouchEnd, { passive: true });
+		element.addEventListener("touchcancel", onTouchEnd, { passive: true });
+		this.removeTouchScrollListeners = () => {
+			element.removeEventListener("touchstart", onTouchStart);
+			element.removeEventListener("touchmove", onTouchMove);
+			element.removeEventListener("touchend", onTouchEnd);
+			element.removeEventListener("touchcancel", onTouchEnd);
+		};
 	}
 
 	private notifyLastError(): void {
@@ -688,6 +773,8 @@ class PersistentTerminal {
 			return;
 		}
 		this.disposed = true;
+		this.removeTouchScrollListeners?.();
+		this.removeTouchScrollListeners = null;
 		this.unmount(this.visibleContainer);
 		this.ioSocket?.close();
 		this.controlSocket?.close();
