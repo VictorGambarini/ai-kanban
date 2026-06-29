@@ -40,7 +40,10 @@ export interface RemoteRuntimeBootstrapResult {
 
 const DEFAULT_BINARY = "ai-kanban";
 const DEFAULT_HEALTH_TIMEOUT_MS = 30_000;
-const DEFAULT_NPX_HEALTH_TIMEOUT_MS = 120_000;
+// First npx run downloads a large package (Sentry, OpenTelemetry, MCP SDK, …),
+// which can take several minutes on a slow link. Be generous so a cold start
+// doesn't time out before the runtime comes up.
+const DEFAULT_NPX_HEALTH_TIMEOUT_MS = 300_000;
 const DEFAULT_HEALTH_INTERVAL_MS = 1_000;
 
 function defaultSleep(ms: number): Promise<void> {
@@ -123,8 +126,11 @@ export async function ensureRemoteRuntime(
 			return { outcome: "launched", binary: launched };
 		}
 		if (now() >= deadline) {
+			const firstRunHint = useNpx
+				? " The first launch downloads the package, which can be slow on the host's network; retrying often succeeds once npx has cached it."
+				: "";
 			throw new Error(
-				`Remote runtime on this host did not become healthy within ${Math.round(healthTimeoutMs / 1000)}s after launch. Check ~/.cline/kanban/remote-runtime.log on the host.`,
+				`Remote runtime on this host did not become healthy within ${Math.round(healthTimeoutMs / 1000)}s after launch.${firstRunHint} Check ~/.cline/kanban/remote-runtime.log on the host.`,
 			);
 		}
 	}
