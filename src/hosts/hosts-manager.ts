@@ -57,6 +57,8 @@ export class HostsManager {
 	private readonly runtimeErrors = new Map<string, string>();
 	/** Remote runtime version per host (from its /api/version), for drift detection. */
 	private readonly runtimeVersions = new Map<string, string>();
+	/** Runtime port per connected host, needed to rewrite the proxied Host header. */
+	private readonly runtimePorts = new Map<string, number>();
 
 	constructor(options: HostsManagerOptions = {}) {
 		this.connectionManager = options.connectionManager ?? new RemoteHostConnectionManager();
@@ -124,6 +126,7 @@ export class HostsManager {
 		this.bootstrappedHostIds.delete(hostId);
 		this.runtimeErrors.delete(hostId);
 		this.runtimeVersions.delete(hostId);
+		this.runtimePorts.delete(hostId);
 		return await removeRemoteHost(hostId);
 	}
 
@@ -145,6 +148,7 @@ export class HostsManager {
 		this.bootstrappedHostIds.delete(hostId);
 		this.runtimeErrors.delete(hostId);
 		this.runtimeVersions.delete(hostId);
+		this.runtimePorts.delete(hostId);
 	}
 
 	getStatus(hostId: string): RemoteHostConnectionStatus | null {
@@ -161,6 +165,15 @@ export class HostsManager {
 		return status?.state === "connected" ? status.localPort : null;
 	}
 
+	/**
+	 * The remote runtime's own port (what it's bound to on the VM). The proxy needs
+	 * this to set a Host header the remote's allowlist accepts — its forwarded
+	 * loopback port on the hub differs from the port the remote is actually bound to.
+	 */
+	getRuntimePort(hostId: string): number | null {
+		return this.runtimePorts.get(hostId) ?? null;
+	}
+
 	onStatusChange(listener: (status: RemoteHostConnectionStatus) => void): () => void {
 		return this.connectionManager.onStatusChange(listener);
 	}
@@ -174,6 +187,7 @@ export class HostsManager {
 		// A fresh connection attempt invalidates any prior bootstrap failure / version.
 		this.runtimeErrors.delete(host.id);
 		this.runtimeVersions.delete(host.id);
+		this.runtimePorts.set(host.id, host.runtimePort);
 		const connection = this.connectionManager.connectHost(host);
 		if (this.autoBootstrap) {
 			connection.onStatusChange((status) => {

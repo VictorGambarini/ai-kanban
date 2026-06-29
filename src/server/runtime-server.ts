@@ -422,7 +422,7 @@ export async function createRuntimeServer(deps: CreateRuntimeServerDependencies)
 						res.end('{"error":"Remote host is not connected."}');
 						return;
 					}
-					proxyHttpRequest(req, res, forwardedPort);
+					proxyHttpRequest(req, res, forwardedPort, hostsManager.getRuntimePort(hostId) ?? forwardedPort);
 					return;
 				}
 			}
@@ -502,7 +502,7 @@ export async function createRuntimeServer(deps: CreateRuntimeServerDependencies)
 			socket.destroy();
 			return;
 		}
-		proxyWebSocketUpgrade(request, socket, head, forwardedPort);
+		proxyWebSocketUpgrade(request, socket, head, forwardedPort, hostsManager.getRuntimePort(hostId) ?? forwardedPort);
 	});
 
 	server.on("upgrade", (request, socket, head) => {

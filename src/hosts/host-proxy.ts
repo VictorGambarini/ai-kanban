@@ -30,24 +30,43 @@ export function isLocalHostId(hostId: string): boolean {
 	return hostId === LOCAL_HOST_ID;
 }
 
-function rewriteHostHeader(headers: IncomingMessage["headers"], targetPort: number): IncomingMessage["headers"] {
-	// The remote runtime is loopback-bound (no Host/Origin gating), so pointing
-	// Host at the forwarded port keeps it happy and avoids DNS-rebind rejection.
-	return { ...headers, host: `${LOOPBACK}:${targetPort}` };
+function rewriteProxyHeaders(headers: IncomingMessage["headers"], runtimePort: number): IncomingMessage["headers"] {
+	// The remote runtime guards both Host and Origin against DNS-rebinding/CSRF and
+	// only accepts its OWN bound `127.0.0.1:<runtimePort>`. We reach it through the
+	// hub's forwarded loopback port (a different number) and the browser's Origin is
+	// the hub's, so BOTH must be rewritten to the remote's runtime port — otherwise
+	// the remote rejects with 403 ("Host not allowed" / "Origin not allowed"). This
+	// bites whenever the hub port differs from the remote runtime port; when they
+	// happen to match it works by coincidence. The tunnel is loopback http.
+	const rewritten: IncomingMessage["headers"] = { ...headers, host: `${LOOPBACK}:${runtimePort}` };
+	// Only rewrite Origin when the client actually sent one (e.g. WebSocket
+	// upgrades and cross-origin fetches); never fabricate one otherwise.
+	if (headers.origin !== undefined) {
+		rewritten.origin = `http://${LOOPBACK}:${runtimePort}`;
+	}
+	return rewritten;
 }
 
 /**
  * Reverse-proxy an HTTP request to a host's forwarded loopback port. The request
  * body is streamed, so this must run before anything else consumes `req`.
+ *
+ * `forwardedPort` is the hub's local tunnel port we connect to; `runtimePort` is
+ * the remote's own bound port, used only for the Host header.
  */
-export function proxyHttpRequest(req: IncomingMessage, res: ServerResponse, targetPort: number): void {
+export function proxyHttpRequest(
+	req: IncomingMessage,
+	res: ServerResponse,
+	forwardedPort: number,
+	runtimePort: number,
+): void {
 	const proxyReq = httpRequest(
 		{
 			host: LOOPBACK,
-			port: targetPort,
+			port: forwardedPort,
 			method: req.method,
 			path: req.url,
-			headers: rewriteHostHeader(req.headers, targetPort),
+			headers: rewriteProxyHeaders(req.headers, runtimePort),
 		},
 		(proxyRes) => {
 			res.writeHead(proxyRes.statusCode ?? 502, proxyRes.headers);
@@ -63,9 +82,9 @@ export function proxyHttpRequest(req: IncomingMessage, res: ServerResponse, targ
 	req.pipe(proxyReq);
 }
 
-function serializeRequestHead(req: IncomingMessage, targetPort: number): string {
+function serializeRequestHead(req: IncomingMessage, runtimePort: number): string {
 	const lines = [`${req.method ?? "GET"} ${req.url ?? "/"} HTTP/1.1`];
-	for (const [key, value] of Object.entries(rewriteHostHeader(req.headers, targetPort))) {
+	for (const [key, value] of Object.entries(rewriteProxyHeaders(req.headers, runtimePort))) {
 		if (value === undefined) {
 			continue;
 		}
@@ -88,10 +107,11 @@ export function proxyWebSocketUpgrade(
 	req: IncomingMessage,
 	clientSocket: Duplex,
 	head: Buffer,
-	targetPort: number,
+	forwardedPort: number,
+	runtimePort: number,
 ): void {
-	const upstream = netConnect(targetPort, LOOPBACK, () => {
-		upstream.write(serializeRequestHead(req, targetPort));
+	const upstream = netConnect(forwardedPort, LOOPBACK, () => {
+		upstream.write(serializeRequestHead(req, runtimePort));
 		if (head.length > 0) {
 			upstream.write(head);
 		}
