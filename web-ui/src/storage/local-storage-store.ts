@@ -21,6 +21,7 @@ export enum LocalStorageKey {
 	TabVisibilityPresence = "kanban.tab-visibility-presence.v1",
 	Theme = "kanban.theme",
 	ActiveHostId = "kanban.active-host-id",
+	MaxLiveTerminalSessions = "kanban.max-live-terminal-sessions",
 }
 
 export const LAYOUT_CUSTOMIZATION_LOCAL_STORAGE_KEYS = [
