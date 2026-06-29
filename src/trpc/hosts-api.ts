@@ -12,6 +12,7 @@ export interface HostsApi {
 	update: (input: { hostId: string; patch: UpdateRemoteHostInput }) => Promise<RemoteHostSummary | null>;
 	remove: (input: { hostId: string }) => Promise<{ ok: boolean }>;
 	connect: (input: { hostId: string }) => Promise<RemoteHostConnectionStatus | null>;
+	restart: (input: { hostId: string }) => Promise<RemoteHostConnectionStatus | null>;
 	disconnect: (input: { hostId: string }) => Promise<{ ok: boolean }>;
 }
 
@@ -46,6 +47,7 @@ export function createHostsApi(deps: CreateHostsApiDependencies): HostsApi {
 		},
 		remove: async ({ hostId }) => ({ ok: await hostsManager.removeHost(hostId) }),
 		connect: async ({ hostId }) => await hostsManager.connectHost(hostId),
+		restart: async ({ hostId }) => await hostsManager.restartHost(hostId),
 		disconnect: async ({ hostId }) => {
 			hostsManager.disconnectHost(hostId);
 			return { ok: true };

@@ -42,6 +42,7 @@ export interface UseHostsResult {
 	updateHost: (hostId: string, patch: UpdateHostInput) => Promise<RemoteHostSummary | null>;
 	removeHost: (hostId: string) => Promise<void>;
 	connectHost: (hostId: string) => Promise<void>;
+	restartHost: (hostId: string) => Promise<void>;
 	disconnectHost: (hostId: string) => Promise<void>;
 }
 
@@ -115,6 +116,14 @@ export function useHosts(): UseHostsResult {
 		[refresh],
 	);
 
+	const restartHost = useCallback(
+		async (hostId: string) => {
+			await getHubTrpcClient().hosts.restart.mutate({ hostId });
+			await refresh();
+		},
+		[refresh],
+	);
+
 	const disconnectHost = useCallback(
 		async (hostId: string) => {
 			await getHubTrpcClient().hosts.disconnect.mutate({ hostId });
@@ -123,5 +132,16 @@ export function useHosts(): UseHostsResult {
 		[refresh],
 	);
 
-	return { hosts, isLoading, error, refresh, addHost, updateHost, removeHost, connectHost, disconnectHost };
+	return {
+		hosts,
+		isLoading,
+		error,
+		refresh,
+		addHost,
+		updateHost,
+		removeHost,
+		connectHost,
+		restartHost,
+		disconnectHost,
+	};
 }

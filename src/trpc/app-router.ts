@@ -400,6 +400,7 @@ export interface RuntimeTrpcContext {
 		update: (input: { hostId: string; patch: UpdateRemoteHostInput }) => Promise<RemoteHostSummary | null>;
 		remove: (input: { hostId: string }) => Promise<{ ok: boolean }>;
 		connect: (input: { hostId: string }) => Promise<RemoteHostConnectionStatus | null>;
+		restart: (input: { hostId: string }) => Promise<RemoteHostConnectionStatus | null>;
 		disconnect: (input: { hostId: string }) => Promise<{ ok: boolean }>;
 	};
 }
@@ -804,6 +805,12 @@ export const runtimeAppRouter = t.router({
 			.output(remoteHostConnectionStatusSchema.nullable())
 			.mutation(async ({ ctx, input }) => {
 				return await ctx.hostsApi.connect(input);
+			}),
+		restart: t.procedure
+			.input(z.object({ hostId: z.string() }))
+			.output(remoteHostConnectionStatusSchema.nullable())
+			.mutation(async ({ ctx, input }) => {
+				return await ctx.hostsApi.restart(input);
 			}),
 		disconnect: t.procedure
 			.input(z.object({ hostId: z.string() }))

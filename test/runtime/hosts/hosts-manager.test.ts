@@ -87,6 +87,24 @@ describe("HostsManager + hosts API", () => {
 		expect(manager.getStatus(added.host.id)).toBeNull();
 	});
 
+	it("restart returns null for an unknown host", async () => {
+		const manager = makeManager();
+		const api = createHostsApi({ hostsManager: manager });
+		expect(await api.restart({ hostId: "nope" })).toBeNull();
+	});
+
+	it("restart re-runs the connection for a known host", async () => {
+		const manager = makeManager();
+		const api = createHostsApi({ hostsManager: manager });
+		const added = await api.add({ label: "Van", ssh: { hostname: "a", username: "u" } });
+
+		// Not connected (FakeClient never readies), so there is no runtime to stop;
+		// restart still kicks off a fresh connection rather than throwing.
+		const status = await api.restart({ hostId: added.host.id });
+		expect(status?.state).toBe("connecting");
+		manager.disconnectAll();
+	});
+
 	it("connects hosts discovered at startup", async () => {
 		// Seed the registry, then start a fresh manager.
 		const seeding = makeManager();

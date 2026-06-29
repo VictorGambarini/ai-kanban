@@ -18,6 +18,7 @@ import {
 	ensureRemoteRuntime,
 	fetchRemoteRuntimeVersion,
 	type RemoteRuntimeBootstrapResult,
+	stopRemoteRuntime,
 } from "./remote-runtime-bootstrap";
 import { type RemoteHostConnection, RemoteHostConnectionManager } from "./ssh-connection-manager";
 
@@ -141,6 +142,32 @@ export class HostsManager {
 		this.bootstrappedHostIds.delete(hostId);
 		const connection = this.beginConnection(host);
 		return connection.getStatus();
+	}
+
+	/**
+	 * Restart the remote runtime: stop the running process, then re-bootstrap a
+	 * fresh one. The new runtime re-runs agent discovery, so this is how a newly
+	 * installed agent (e.g. `claude`) on the VM gets picked up without manual SSH.
+	 */
+	async restartHost(hostId: string): Promise<RemoteHostConnectionStatus | null> {
+		const host = await getRemoteHost(hostId);
+		if (!host) {
+			return null;
+		}
+		// Stop the current runtime while the tunnel is still up; if it isn't
+		// connected there's nothing to stop and the reconnect below relaunches it.
+		const connection = this.connectionManager.getConnection(hostId);
+		if (connection && connection.getStatus().state === "connected") {
+			try {
+				await stopRemoteRuntime((command) => connection.exec(command), host.runtimePort);
+			} catch (error) {
+				const message = error instanceof Error ? error.message : String(error);
+				this.warn(`Failed to stop remote runtime on "${hostId}": ${message}`);
+			}
+		}
+		// Clean reconnect re-runs bootstrap against the now-stopped runtime, which
+		// health-checks as down and so relaunches a fresh process.
+		return this.connectHost(hostId);
 	}
 
 	disconnectHost(hostId: string): void {

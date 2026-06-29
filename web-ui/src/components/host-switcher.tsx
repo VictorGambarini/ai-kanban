@@ -1,5 +1,5 @@
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
-import { AlertTriangle, Check, ChevronsUpDown, Monitor, Pencil, Plus, Server, Trash2 } from "lucide-react";
+import { AlertTriangle, Check, ChevronsUpDown, Monitor, Pencil, Plus, RotateCw, Server, Trash2 } from "lucide-react";
 import { type FormEvent, useState } from "react";
 
 import { notifyError } from "@/components/app-toaster";
@@ -62,7 +62,7 @@ function StatusDot({
  * whole app (via {@link setActiveHostId}, which reloads).
  */
 export function HostSwitcher(): React.ReactElement | null {
-	const { hosts, error, addHost, updateHost, removeHost, connectHost } = useHosts();
+	const { hosts, error, addHost, updateHost, removeHost, connectHost, restartHost } = useHosts();
 	const [isAddOpen, setIsAddOpen] = useState(false);
 	const [editing, setEditing] = useState<RemoteHostSummary | null>(null);
 	const activeHostId = getActiveHostId();
@@ -135,6 +135,11 @@ export function HostSwitcher(): React.ReactElement | null {
 										notifyError(caught instanceof Error ? caught.message : String(caught)),
 									);
 								}}
+								onRestart={() => {
+									void restartHost(entry.host.id).catch((caught) =>
+										notifyError(caught instanceof Error ? caught.message : String(caught)),
+									);
+								}}
 								onRemove={() => {
 									void removeHost(entry.host.id).catch((caught) =>
 										notifyError(caught instanceof Error ? caught.message : String(caught)),
@@ -199,6 +204,7 @@ function RemoteHostMenuItem({
 	onSelect,
 	onEdit,
 	onConnect,
+	onRestart,
 	onRemove,
 }: {
 	summary: RemoteHostSummary;
@@ -206,6 +212,7 @@ function RemoteHostMenuItem({
 	onSelect: () => void;
 	onEdit: () => void;
 	onConnect: () => void;
+	onRestart: () => void;
 	onRemove: () => void;
 }): React.ReactElement {
 	const sshState = (summary.status?.state ?? null) as ConnectionState | null;
@@ -250,6 +257,16 @@ function RemoteHostMenuItem({
 						className="shrink-0 rounded-sm px-1 py-0.5 text-[11px] text-text-tertiary hover:text-text-secondary"
 					>
 						Retry
+					</button>
+				) : null}
+				{state === "connected" ? (
+					<button
+						type="button"
+						onClick={onRestart}
+						title="Restart runtime (re-detects installed agents)"
+						className="shrink-0 rounded-sm p-1 text-text-tertiary opacity-0 hover:text-text-primary group-hover:opacity-100"
+					>
+						<RotateCw size={13} />
 					</button>
 				) : null}
 				<button

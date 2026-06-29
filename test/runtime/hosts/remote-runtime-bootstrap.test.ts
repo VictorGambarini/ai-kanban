@@ -6,6 +6,7 @@ import {
 	ensureRemoteRuntime,
 	fetchRemoteRuntimeVersion,
 	type RemoteCommandRunner,
+	stopRemoteRuntime,
 } from "../../../src/hosts/remote-runtime-bootstrap";
 
 function ok(stdout = ""): RemoteCommandResult {
@@ -52,6 +53,29 @@ describe("ensureRemoteRuntime", () => {
 		expect(launchCommand).toContain("3484");
 		expect(launchCommand).toContain("--no-passcode");
 		expect(launchCommand).toContain("ai-kanban");
+		// Must launch through a login shell so the runtime inherits the user's full
+		// PATH (e.g. ~/.local/bin) and can discover locally-installed agents.
+		expect(launchCommand).toContain("bash -lc");
+	});
+
+	it("probes for the binary through a login shell so login-only PATH entries are visible", async () => {
+		const commands: string[] = [];
+		const runner: RemoteCommandRunner = (command) => {
+			commands.push(command);
+			return Promise.resolve(ok(command.includes("command -v") ? "/usr/bin/ai-kanban" : ""));
+		};
+		let healthy = false;
+		await ensureRemoteRuntime(
+			runner,
+			() => {
+				const value = healthy;
+				healthy = true;
+				return Promise.resolve(value);
+			},
+			{ runtimePort: 3484, sleep: noSleep },
+		);
+		const probe = commands.find((command) => command.includes("command -v"));
+		expect(probe).toContain("bash -lc");
 	});
 
 	it("throws an actionable error when the binary is missing", async () => {
@@ -84,7 +108,7 @@ describe("ensureRemoteRuntime", () => {
 		expect(result.outcome).toBe("launched");
 		expect(result.binary).toBe("@victorgambarini/ai-kanban@0.1.69");
 		// Probe must target npx, not the ai-kanban binary.
-		expect(commands.some((command) => command.includes("command -v 'npx'"))).toBe(true);
+		expect(commands.some((command) => command.includes("command -v") && command.includes("npx"))).toBe(true);
 		const launchCommand = commands.find((command) => command.includes("setsid"));
 		expect(launchCommand).toBeDefined();
 		expect(launchCommand).toContain("npx");
@@ -121,6 +145,23 @@ describe("ensureRemoteRuntime", () => {
 				},
 			}),
 		).rejects.toThrow(/did not become healthy/);
+	});
+});
+
+describe("stopRemoteRuntime", () => {
+	it("kills the runtime port and lingering process without self-matching", async () => {
+		const commands: string[] = [];
+		const runner: RemoteCommandRunner = (command) => {
+			commands.push(command);
+			return Promise.resolve(ok());
+		};
+		await stopRemoteRuntime(runner, 3484);
+		expect(commands).toHaveLength(1);
+		const [command] = commands;
+		expect(command).toContain("3484/tcp");
+		// Bracket trick: the pattern must not match this very command line.
+		expect(command).toContain("[a]i-kanban");
+		expect(command).not.toContain('"ai-kanban"');
 	});
 });
 

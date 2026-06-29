@@ -55,6 +55,18 @@ function shellQuote(value: string): string {
 	return `'${value.replaceAll("'", "'\\''")}'`;
 }
 
+/**
+ * Wrap a command so it runs inside a login shell (`bash -lc`), which sources the
+ * user's profile (`/etc/profile`, `~/.profile`, …). SSH `exec` runs commands in a
+ * NON-interactive, non-login shell with a stripped PATH (e.g. missing
+ * `~/.local/bin`, nvm), so agents installed there — notably `claude` — are
+ * invisible to the runtime and to PATH probes. Running through a login shell
+ * gives both the same PATH the user gets when they `ssh` in and type a command.
+ */
+function loginShellCommand(inner: string): string {
+	return `bash -lc ${shellQuote(inner)}`;
+}
+
 /** The runtime flags every remote launch needs, regardless of how it's invoked. */
 function buildRuntimeArgs(runtimePort: number, extraArgs: string[]): string[] {
 	return ["--host", "127.0.0.1", "--port", String(runtimePort), "--no-open", "--no-passcode", ...extraArgs];
@@ -64,13 +76,14 @@ function buildRuntimeArgs(runtimePort: number, extraArgs: string[]): string[] {
  * Build the command that launches the remote runtime, fully detached so the
  * SSH `exec` channel can close without killing it. Binds to loopback with the
  * passcode disabled — the tunnel is the trust boundary, and the hub reaches it
- * only through the forwarded port.
+ * only through the forwarded port. Launched via a login shell so the runtime
+ * inherits the user's full PATH and can discover locally-installed agents.
  */
 function buildLaunchCommand(commandTokens: string[]): string {
 	const quoted = commandTokens.map(shellQuote).join(" ");
 	const logFile = "$HOME/.cline/kanban/remote-runtime.log";
 	// `setsid` detaches from the SSH session so the process survives channel close.
-	return `mkdir -p "$HOME/.cline/kanban" && setsid sh -c ${shellQuote(`${quoted} >> ${logFile} 2>&1`)} < /dev/null > /dev/null 2>&1 &`;
+	return `mkdir -p "$HOME/.cline/kanban" && setsid ${loginShellCommand(`${quoted} >> ${logFile} 2>&1`)} < /dev/null > /dev/null 2>&1 &`;
 }
 
 /**
@@ -104,7 +117,9 @@ export async function ensureRemoteRuntime(
 	// npx mode needs Node's `npx` on PATH (it fetches/runs the pinned version);
 	// binary mode needs the `ai-kanban` binary itself.
 	const probeBinary = useNpx ? "npx" : binary;
-	const whichResult = await runner(`command -v ${shellQuote(probeBinary)} || true`);
+	// Probe through a login shell so the PATH matches the one the runtime is
+	// launched with (otherwise a binary on the login PATH reads as "missing").
+	const whichResult = await runner(loginShellCommand(`command -v ${shellQuote(probeBinary)} || true`));
 	if (whichResult.stdout.trim().length === 0) {
 		throw new Error(
 			useNpx
@@ -134,6 +149,20 @@ export async function ensureRemoteRuntime(
 			);
 		}
 	}
+}
+
+/**
+ * Stop the remote runtime so a fresh one can be launched (e.g. to pick up a
+ * newly-installed agent, since agent discovery happens at runtime startup).
+ *
+ * Kills whatever is bound to the runtime port and any lingering `ai-kanban`
+ * process. The `[a]i-kanban` bracket trick keeps the `pkill` pattern from
+ * matching this very command line (which contains the literal `[a]i-kanban`).
+ * Best-effort: a non-existent process / missing `fuser` is not an error.
+ */
+export async function stopRemoteRuntime(runner: RemoteCommandRunner, runtimePort: number): Promise<void> {
+	// runtimePort is a number, so it needs no quoting.
+	await runner(`fuser -k ${runtimePort}/tcp 2>/dev/null; pkill -9 -f "[a]i-kanban" 2>/dev/null; true`);
 }
 
 /**
