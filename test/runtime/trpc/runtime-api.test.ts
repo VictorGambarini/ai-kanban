@@ -2912,3 +2912,70 @@ describe("createRuntimeApi update handlers", () => {
 		expect(runUpdateNow).toHaveBeenCalledTimes(1);
 	});
 });
+
+describe("createRuntimeApi restartTaskSessionEnv", () => {
+	function createDepsWithTerminal(terminalManager: Record<string, unknown>) {
+		return {
+			getActiveWorkspaceId: vi.fn(() => "workspace-1"),
+			loadScopedRuntimeConfig: vi.fn(async () => createRuntimeConfigState()),
+			setActiveRuntimeConfig: vi.fn(),
+			getScopedTerminalManager: vi.fn(async () => terminalManager as never),
+			getScopedClineTaskSessionService: vi.fn(async () => createClineTaskSessionServiceMock() as never),
+			resolveInteractiveShellCommand: vi.fn(),
+			runCommand: vi.fn(),
+		};
+	}
+
+	it("restarts a running CLI agent and reports the new summary", async () => {
+		const restartTaskSessionWithEnv = vi.fn(async () => createSummary({ agentId: "codex", state: "running" }));
+		const terminalManager = {
+			getSummary: vi.fn(() => createSummary({ agentId: "codex", state: "running" })),
+			restartTaskSessionWithEnv,
+		};
+		const api = createTestRuntimeApi(createDepsWithTerminal(terminalManager));
+
+		const response = await api.restartTaskSessionEnv(
+			{ workspaceId: "workspace-1", workspacePath: "/tmp/repo" },
+			{ taskId: "task-1" },
+		);
+
+		expect(response.ok).toBe(true);
+		expect(restartTaskSessionWithEnv).toHaveBeenCalledTimes(1);
+		expect(restartTaskSessionWithEnv).toHaveBeenCalledWith("task-1", expect.any(Object));
+	});
+
+	it("refuses to restart an in-process Cline task", async () => {
+		const restartTaskSessionWithEnv = vi.fn(async () => createSummary({ agentId: "cline" }));
+		const terminalManager = {
+			getSummary: vi.fn(() => createSummary({ agentId: "cline", state: "running" })),
+			restartTaskSessionWithEnv,
+		};
+		const api = createTestRuntimeApi(createDepsWithTerminal(terminalManager));
+
+		const response = await api.restartTaskSessionEnv(
+			{ workspaceId: "workspace-1", workspacePath: "/tmp/repo" },
+			{ taskId: "task-1" },
+		);
+
+		expect(response.ok).toBe(false);
+		expect(response.error).toMatch(/not a restartable/i);
+		expect(restartTaskSessionWithEnv).not.toHaveBeenCalled();
+	});
+
+	it("reports failure when the task has no terminal session", async () => {
+		const restartTaskSessionWithEnv = vi.fn(async () => null);
+		const terminalManager = {
+			getSummary: vi.fn(() => null),
+			restartTaskSessionWithEnv,
+		};
+		const api = createTestRuntimeApi(createDepsWithTerminal(terminalManager));
+
+		const response = await api.restartTaskSessionEnv(
+			{ workspaceId: "workspace-1", workspacePath: "/tmp/repo" },
+			{ taskId: "task-1" },
+		);
+
+		expect(response.ok).toBe(false);
+		expect(restartTaskSessionWithEnv).not.toHaveBeenCalled();
+	});
+});

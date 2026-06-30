@@ -1071,6 +1071,24 @@ export const runtimeTaskSessionStopResponseSchema = z.object({
 });
 export type RuntimeTaskSessionStopResponse = z.infer<typeof runtimeTaskSessionStopResponseSchema>;
 
+/**
+ * Restart a running CLI agent task so freshly-saved custom env (the
+ * `tasks[taskId]` scope) takes effect — env is injected at process spawn, so a
+ * live session can't pick it up without re-spawning. The runtime re-resolves the
+ * effective env from the hub config itself; the request only carries the taskId.
+ */
+export const runtimeTaskSessionRestartEnvRequestSchema = z.object({
+	taskId: z.string(),
+});
+export type RuntimeTaskSessionRestartEnvRequest = z.infer<typeof runtimeTaskSessionRestartEnvRequestSchema>;
+
+export const runtimeTaskSessionRestartEnvResponseSchema = z.object({
+	ok: z.boolean(),
+	summary: runtimeTaskSessionSummarySchema.nullable(),
+	error: z.string().optional(),
+});
+export type RuntimeTaskSessionRestartEnvResponse = z.infer<typeof runtimeTaskSessionRestartEnvResponseSchema>;
+
 export const runtimeTaskSessionInputRequestSchema = z.object({
 	taskId: z.string(),
 	text: z.string(),

@@ -78,6 +78,8 @@ import type {
 	RuntimeTaskChatSendResponse,
 	RuntimeTaskSessionInputRequest,
 	RuntimeTaskSessionInputResponse,
+	RuntimeTaskSessionRestartEnvRequest,
+	RuntimeTaskSessionRestartEnvResponse,
 	RuntimeTaskSessionStartRequest,
 	RuntimeTaskSessionStartResponse,
 	RuntimeTaskSessionStopRequest,
@@ -174,6 +176,8 @@ import {
 	runtimeTaskChatSendResponseSchema,
 	runtimeTaskSessionInputRequestSchema,
 	runtimeTaskSessionInputResponseSchema,
+	runtimeTaskSessionRestartEnvRequestSchema,
+	runtimeTaskSessionRestartEnvResponseSchema,
 	runtimeTaskSessionStartRequestSchema,
 	runtimeTaskSessionStartResponseSchema,
 	runtimeTaskSessionStopRequestSchema,
@@ -249,6 +253,10 @@ export interface RuntimeTrpcContext {
 			scope: RuntimeTrpcWorkspaceScope,
 			input: RuntimeTaskSessionStopRequest,
 		) => Promise<RuntimeTaskSessionStopResponse>;
+		restartTaskSessionEnv: (
+			scope: RuntimeTrpcWorkspaceScope,
+			input: RuntimeTaskSessionRestartEnvRequest,
+		) => Promise<RuntimeTaskSessionRestartEnvResponse>;
 		sendTaskSessionInput: (
 			scope: RuntimeTrpcWorkspaceScope,
 			input: RuntimeTaskSessionInputRequest,
@@ -533,6 +541,12 @@ export const runtimeAppRouter = t.router({
 			.output(runtimeTaskSessionStopResponseSchema)
 			.mutation(async ({ ctx, input }) => {
 				return await ctx.runtimeApi.stopTaskSession(ctx.workspaceScope, input);
+			}),
+		restartTaskSessionEnv: workspaceProcedure
+			.input(runtimeTaskSessionRestartEnvRequestSchema)
+			.output(runtimeTaskSessionRestartEnvResponseSchema)
+			.mutation(async ({ ctx, input }) => {
+				return await ctx.runtimeApi.restartTaskSessionEnv(ctx.workspaceScope, input);
 			}),
 		sendTaskSessionInput: workspaceProcedure
 			.input(runtimeTaskSessionInputRequestSchema)

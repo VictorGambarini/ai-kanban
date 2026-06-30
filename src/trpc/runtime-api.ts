@@ -19,7 +19,7 @@ import {
 	updateGlobalRuntimeConfig,
 	updateRuntimeConfig,
 } from "../config/runtime-config";
-import { normalizeAgentEnvMap } from "../core/agent-env";
+import { normalizeAgentEnvMap, resolveEffectiveAgentEnv } from "../core/agent-env";
 import type {
 	RuntimeCommandRunResponse,
 	RuntimeRunUpdateResponse,
@@ -45,6 +45,7 @@ import {
 	parseTaskChatReloadRequest,
 	parseTaskChatSendRequest,
 	parseTaskSessionInputRequest,
+	parseTaskSessionRestartEnvRequest,
 	parseTaskSessionStartRequest,
 	parseTaskSessionStopRequest,
 	parseTaskSkillsSyncRequest,
@@ -400,6 +401,43 @@ export function createRuntimeApi(deps: CreateRuntimeApiDependencies): RuntimeTrp
 				return {
 					ok: Boolean(summary),
 					summary,
+				};
+			} catch (error) {
+				const message = error instanceof Error ? error.message : String(error);
+				return {
+					ok: false,
+					summary: null,
+					error: message,
+				};
+			}
+		},
+		restartTaskSessionEnv: async (workspaceScope, input) => {
+			try {
+				const body = parseTaskSessionRestartEnvRequest(input);
+				const terminalManager = await deps.getScopedTerminalManager(workspaceScope);
+				// Only CLI/PTY agents live in the terminal manager and take spawn-time
+				// env. The in-process Cline agent never receives per-task env, so there
+				// is nothing to restart for it.
+				const existing = terminalManager.getSummary(body.taskId);
+				if (!existing || existing.agentId === "cline") {
+					return {
+						ok: false,
+						summary: existing ?? null,
+						error: "This task is not a restartable CLI agent session.",
+					};
+				}
+				// Re-resolve the effective env from the hub config here so the freshly
+				// saved task/project/global values reach the re-spawned agent. The
+				// project scope is keyed by workspace id, matching the launch path.
+				const envConfig = await loadAgentEnvConfig();
+				const env = resolveEffectiveAgentEnv(envConfig, {
+					projectId: workspaceScope.workspaceId,
+					taskId: body.taskId,
+				});
+				const summary = await terminalManager.restartTaskSessionWithEnv(body.taskId, env);
+				return {
+					ok: Boolean(summary),
+					summary: summary ?? null,
 				};
 			} catch (error) {
 				const message = error instanceof Error ? error.message : String(error);

@@ -25,6 +25,7 @@ import {
 	type RuntimeTaskChatReloadRequest,
 	type RuntimeTaskChatSendRequest,
 	type RuntimeTaskSessionInputRequest,
+	type RuntimeTaskSessionRestartEnvRequest,
 	type RuntimeTaskSessionStartRequest,
 	type RuntimeTaskSessionStopRequest,
 	type RuntimeTaskSkillsSyncRequest,
@@ -59,6 +60,7 @@ import {
 	runtimeTaskChatReloadRequestSchema,
 	runtimeTaskChatSendRequestSchema,
 	runtimeTaskSessionInputRequestSchema,
+	runtimeTaskSessionRestartEnvRequestSchema,
 	runtimeTaskSessionStartRequestSchema,
 	runtimeTaskSessionStopRequestSchema,
 	runtimeTaskSkillsSyncRequestSchema,
@@ -265,6 +267,17 @@ export function parseTaskSessionStopRequest(value: unknown): RuntimeTaskSessionS
 	const taskId = parsed.taskId.trim();
 	if (!taskId) {
 		throw new Error("Invalid task session stop payload.");
+	}
+	return {
+		taskId,
+	};
+}
+
+export function parseTaskSessionRestartEnvRequest(value: unknown): RuntimeTaskSessionRestartEnvRequest {
+	const parsed = parseWithSchema(runtimeTaskSessionRestartEnvRequestSchema, value);
+	const taskId = parsed.taskId.trim();
+	if (!taskId) {
+		throw new Error("Invalid task session restart payload.");
 	}
 	return {
 		taskId,

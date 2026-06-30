@@ -4,6 +4,7 @@ import { ArrowBigUp, Check, Command, CornerDownLeft } from "lucide-react";
 import { type Dispatch, type ReactElement, type SetStateAction, useCallback, useRef, useState } from "react";
 import { useHotkeys } from "react-hotkeys-hook";
 
+import { TaskEnvButton } from "@/components/agent-env/task-env-button";
 import { BranchSelectDropdown, type BranchSelectOption } from "@/components/branch-select-dropdown";
 import { TaskAgentModelPicker, useTaskAgentModelPicker } from "@/components/task-agent-model-picker";
 import { TaskPromptComposer } from "@/components/task-prompt-composer";
@@ -67,6 +68,7 @@ export function TaskInlineCreateCard({
 	enabled = true,
 	mode = "create",
 	idPrefix = "inline-task",
+	taskId,
 	agentId,
 	onAgentIdChange,
 	cliModel,
@@ -103,6 +105,8 @@ export function TaskInlineCreateCard({
 	enabled?: boolean;
 	mode?: TaskInlineCardMode;
 	idPrefix?: string;
+	/** Existing task id (edit mode only), used to key the per-task env editor. */
+	taskId?: string;
 	agentId?: RuntimeAgentId | undefined;
 	onAgentIdChange?: (value: RuntimeAgentId | undefined) => void;
 	cliModel?: string | undefined;
@@ -342,6 +346,14 @@ export function TaskInlineCreateCard({
 						providerDefaultModels={providerDefaultModels}
 						onPopoverOpenChange={setIsModelPickerPopoverOpen}
 					/>
+				) : null}
+				{mode === "edit" && taskId && (agentId ?? defaultAgentId) !== "cline" ? (
+					// Per-task env for a not-yet-started card; applies on first launch. The
+					// in-process Cline agent never receives per-task env, so it's hidden there.
+					<div className="flex items-center justify-between gap-2">
+						<span className="text-[12px] text-text-secondary">Environment variables</span>
+						<TaskEnvButton taskId={taskId} />
+					</div>
 				) : null}
 			</div>
 

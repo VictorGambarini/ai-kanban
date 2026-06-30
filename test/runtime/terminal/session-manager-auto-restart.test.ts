@@ -158,6 +158,77 @@ describe("TerminalSessionManager auto-restart", () => {
 		expect(session.write).toHaveBeenCalledTimes(1);
 	});
 
+	it("restarts a running task with freshly resolved env applied at spawn", async () => {
+		const spawnedSessions: Array<ReturnType<typeof createMockPtySession>> = [];
+		ptySessionSpawnMock.mockImplementation((request: MockSpawnRequest) => {
+			const session = createMockPtySession(spawnedSessions.length === 0 ? 111 : 222, request);
+			spawnedSessions.push(session);
+			return session;
+		});
+
+		const manager = new TerminalSessionManager();
+		manager.attach("task-1", { onState: vi.fn(), onOutput: vi.fn(), onExit: vi.fn() });
+
+		await manager.startTaskSession({
+			taskId: "task-1",
+			agentId: "codex",
+			binary: "codex",
+			args: [],
+			cwd: "/tmp/task-1",
+			prompt: "Fix the bug",
+		});
+		expect(ptySessionSpawnMock).toHaveBeenCalledTimes(1);
+
+		await manager.restartTaskSessionWithEnv("task-1", { GH_TOKEN: "secret-token" });
+		// Restart stops the live process; the exit handler re-spawns with the new env.
+		expect(spawnedSessions[0]?.stop).toHaveBeenCalledTimes(1);
+		spawnedSessions[0]?.triggerExit(0);
+
+		await vi.waitFor(() => {
+			expect(ptySessionSpawnMock).toHaveBeenCalledTimes(2);
+		});
+		const respawnEnv = ptySessionSpawnMock.mock.calls[1]?.[0]?.env as Record<string, string> | undefined;
+		expect(respawnEnv?.GH_TOKEN).toBe("secret-token");
+		expect(manager.getSummary("task-1")?.pid).toBe(222);
+	});
+
+	it("spawns a not-running task fresh with the new env on restart", async () => {
+		const spawnedSessions: Array<ReturnType<typeof createMockPtySession>> = [];
+		ptySessionSpawnMock.mockImplementation((request: MockSpawnRequest) => {
+			const session = createMockPtySession(spawnedSessions.length === 0 ? 111 : 222, request);
+			spawnedSessions.push(session);
+			return session;
+		});
+
+		const manager = new TerminalSessionManager();
+		manager.attach("task-1", { onState: vi.fn(), onOutput: vi.fn(), onExit: vi.fn() });
+
+		await manager.startTaskSession({
+			taskId: "task-1",
+			agentId: "codex",
+			binary: "codex",
+			args: [],
+			cwd: "/tmp/task-1",
+			prompt: "Fix the bug",
+		});
+		manager.stopTaskSession("task-1");
+		spawnedSessions[0]?.triggerExit(0);
+		await Promise.resolve();
+		expect(ptySessionSpawnMock).toHaveBeenCalledTimes(1);
+
+		await manager.restartTaskSessionWithEnv("task-1", { JIRA_API_KEY: "k1" });
+		expect(ptySessionSpawnMock).toHaveBeenCalledTimes(2);
+		const respawnEnv = ptySessionSpawnMock.mock.calls[1]?.[0]?.env as Record<string, string> | undefined;
+		expect(respawnEnv?.JIRA_API_KEY).toBe("k1");
+	});
+
+	it("returns null when restarting a task that was never started", async () => {
+		const manager = new TerminalSessionManager();
+		const result = await manager.restartTaskSessionWithEnv("unknown-task", { GH_TOKEN: "x" });
+		expect(result).toBeNull();
+		expect(ptySessionSpawnMock).not.toHaveBeenCalled();
+	});
+
 	it("sends deferred Codex startup input when the startup UI header appears", async () => {
 		const deferredStartupInput = "\u001b[200~/plan Validate startup UI detect\u001b[201~\r";
 		prepareAgentLaunchMock.mockResolvedValue({

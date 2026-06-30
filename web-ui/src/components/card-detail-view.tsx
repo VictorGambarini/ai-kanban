@@ -330,6 +330,7 @@ export function CardDetailView({
 	onEditTask,
 	onSaveTaskTitle,
 	onTaskSkillsChanged,
+	onRestartTaskEnv,
 	onCommitTask,
 	onOpenPrTask,
 	onAgentCommitTask,
@@ -389,6 +390,7 @@ export function CardDetailView({
 	onEditTask?: (card: BoardCard) => void;
 	onSaveTaskTitle?: (taskId: string, title: string) => void;
 	onTaskSkillsChanged?: (taskId: string, skillNames: string[]) => void;
+	onRestartTaskEnv?: (taskId: string) => Promise<{ ok: boolean; message?: string }>;
 	onCommitTask?: (taskId: string) => void;
 	onOpenPrTask?: (taskId: string) => void;
 	onAgentCommitTask?: (taskId: string) => void;
@@ -710,12 +712,27 @@ export function CardDetailView({
 	// started ones — it syncs the worktree files live (see TaskSkillsButton).
 	const isStartedColumn = selection.column.id === "in_progress" || selection.column.id === "review";
 	const showTaskSkillsControl = isStartedColumn && !!currentProjectId && !!onTaskSkillsChanged;
-	const showTaskControlBar = showTaskSkillsControl || isStartedColumn;
+	// Per-task env on a running/review card. Backlog cards set env from the inline
+	// editor instead (see TaskInlineCreateCard); this control bar only exists for
+	// started cards. The in-process Cline agent never receives per-task env, so the
+	// control is hidden there.
+	const showTaskEnvControl = !showClineAgentChatPanel && isStartedColumn;
+	// A started CLI task already spawned its agent, so applying new env needs a restart.
+	const envRequiresRestart = isStartedColumn;
+	const showTaskControlBar = showTaskEnvControl || showTaskSkillsControl;
 	const agentArea = (
 		<div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
 			{showTaskControlBar ? (
 				<div className="flex items-center justify-end gap-2 border-b border-border bg-surface-1 px-2 py-1">
-					<TaskEnvButton taskId={selection.card.id} />
+					{showTaskEnvControl ? (
+						<TaskEnvButton
+							taskId={selection.card.id}
+							requiresRestartToApply={envRequiresRestart}
+							onRequestRestart={
+								envRequiresRestart && onRestartTaskEnv ? () => onRestartTaskEnv(selection.card.id) : undefined
+							}
+						/>
+					) : null}
 					{showTaskSkillsControl ? (
 						<TaskSkillsButton
 							workspaceId={currentProjectId}

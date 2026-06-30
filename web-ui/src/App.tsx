@@ -199,6 +199,7 @@ export default function App(): ReactElement {
 		ensureTaskWorkspace,
 		startTaskSession,
 		stopTaskSession,
+		restartTaskSessionEnv,
 		sendTaskSessionInput,
 		sendTaskChatMessage,
 		cancelTaskChatTurn,
@@ -818,6 +819,7 @@ export default function App(): ReactElement {
 			defaultModelId={runtimeProjectConfig?.clineProviderSettings?.modelId ?? null}
 			defaultReasoningEffort={runtimeProjectConfig?.clineProviderSettings?.reasoningEffort ?? null}
 			mode="edit"
+			taskId={editingTaskId}
 			idPrefix={`inline-edit-task-${editingTaskId}`}
 		/>
 	) : undefined;
@@ -1058,6 +1060,7 @@ export default function App(): ReactElement {
 									}}
 									onSaveTaskTitle={handleSaveTaskTitle}
 									onTaskSkillsChanged={handleTaskSkillsChanged}
+									onRestartTaskEnv={restartTaskSessionEnv}
 									onCommitTask={handleCommitTask}
 									onOpenPrTask={handleOpenPrTask}
 									onAgentCommitTask={handleAgentCommitTask}

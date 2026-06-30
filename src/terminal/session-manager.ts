@@ -71,6 +71,10 @@ interface SessionEntry {
 	listeners: Map<number, TerminalSessionListener>;
 	restartRequest: RestartableSessionRequest | null;
 	suppressAutoRestartOnExit: boolean;
+	// Set by an explicit, user-initiated restart (e.g. applying new per-task env).
+	// Honored by shouldAutoRestart to re-spawn on exit even when the crash-loop
+	// guard would otherwise suppress it, and without consuming the crash budget.
+	forceRestartOnExit: boolean;
 	autoRestartTimestamps: number[];
 	pendingAutoRestart: Promise<void> | null;
 }
@@ -253,6 +257,7 @@ export class TerminalSessionManager implements TerminalSessionService {
 				listeners: new Map(),
 				restartRequest: null,
 				suppressAutoRestartOnExit: false,
+				forceRestartOnExit: false,
 				autoRestartTimestamps: [],
 				pendingAutoRestart: null,
 			});
@@ -933,6 +938,43 @@ export class TerminalSessionManager implements TerminalSessionService {
 		return cloneSummary(entry.summary);
 	}
 
+	/**
+	 * Re-spawn a task's agent process with a freshly resolved custom env set,
+	 * applying env changes that were saved while the task was already running (env
+	 * is injected at spawn, so a live process can't pick it up otherwise). The
+	 * agent resumes from its own persisted session, so this is non-destructive.
+	 *
+	 * If the task isn't currently running, it spawns fresh with the new env. The
+	 * updated env is also stored on the restart request so future auto-restarts
+	 * keep using it. Returns null when there's no task session to restart.
+	 */
+	async restartTaskSessionWithEnv(
+		taskId: string,
+		env: Record<string, string | undefined> | undefined,
+	): Promise<RuntimeTaskSessionSummary | null> {
+		const entry = this.entries.get(taskId);
+		if (!entry || entry.restartRequest?.kind !== "task") {
+			return null;
+		}
+		const nextEnv = env && Object.keys(env).length > 0 ? { ...env } : undefined;
+		entry.restartRequest = {
+			kind: "task",
+			request: { ...entry.restartRequest.request, env: nextEnv },
+		};
+		if (!entry.active) {
+			// Not running: spawn fresh with the new env directly.
+			return this.startTaskSession(cloneStartTaskSessionRequest(entry.restartRequest.request));
+		}
+		// Running: stop the current process and let the exit handler re-spawn it
+		// with the refreshed env. forceRestartOnExit re-spawns even if the UI isn't
+		// actively listening and without consuming the crash-loop budget.
+		entry.forceRestartOnExit = true;
+		entry.suppressAutoRestartOnExit = false;
+		stopWorkspaceTrustTimers(entry.active);
+		entry.active.session.stop();
+		return cloneSummary(entry.summary);
+	}
+
 	markInterruptedAndStopAll(): RuntimeTaskSessionSummary[] {
 		const activeEntries = Array.from(this.entries.values()).filter((entry) => entry.active != null);
 		for (const entry of activeEntries) {
@@ -974,6 +1016,7 @@ export class TerminalSessionManager implements TerminalSessionService {
 			listeners: new Map(),
 			restartRequest: null,
 			suppressAutoRestartOnExit: false,
+			forceRestartOnExit: false,
 			autoRestartTimestamps: [],
 			pendingAutoRestart: null,
 		};
@@ -982,6 +1025,13 @@ export class TerminalSessionManager implements TerminalSessionService {
 	}
 
 	private shouldAutoRestart(entry: SessionEntry): boolean {
+		// An explicit user-initiated restart always wins, bypassing the crash-loop
+		// guard and not counting against the crash budget.
+		if (entry.forceRestartOnExit) {
+			entry.forceRestartOnExit = false;
+			entry.suppressAutoRestartOnExit = false;
+			return entry.restartRequest?.kind === "task";
+		}
 		const wasSuppressed = entry.suppressAutoRestartOnExit;
 		entry.suppressAutoRestartOnExit = false;
 		if (wasSuppressed) {
