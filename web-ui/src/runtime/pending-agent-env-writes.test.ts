@@ -1,10 +1,9 @@
 import type { AgentEnvConfig } from "@runtime-agent-env";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-
+import { fetchAgentEnvConfig, saveAgentEnvConfig } from "@/runtime/agent-env-query";
 import { queueTaskEnvWrite, whenTaskEnvWriteSettled } from "@/runtime/pending-agent-env-writes";
-import { fetchAgentEnvConfig, saveAgentEnvConfig } from "@/runtime/runtime-config-query";
 
-vi.mock("@/runtime/runtime-config-query", () => ({
+vi.mock("@/runtime/agent-env-query", () => ({
 	fetchAgentEnvConfig: vi.fn(),
 	saveAgentEnvConfig: vi.fn(),
 }));

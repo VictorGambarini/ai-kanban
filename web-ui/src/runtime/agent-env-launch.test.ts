@@ -1,9 +1,9 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { resolveLaunchAgentEnv } from "@/runtime/agent-env-launch";
-import { fetchAgentEnvConfig } from "@/runtime/runtime-config-query";
+import { fetchAgentEnvConfig } from "@/runtime/agent-env-query";
 
-vi.mock("@/runtime/runtime-config-query", () => ({
+vi.mock("@/runtime/agent-env-query", () => ({
 	fetchAgentEnvConfig: vi.fn(),
 }));
 

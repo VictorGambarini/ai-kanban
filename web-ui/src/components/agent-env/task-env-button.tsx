@@ -1,10 +1,9 @@
 import * as Popover from "@radix-ui/react-popover";
-import type { AgentEnvConfig, AgentEnvMap } from "@runtime-agent-env";
+import type { AgentEnvConfig } from "@runtime-agent-env";
 import { KeyRound } from "lucide-react";
 import { type ReactElement, useEffect, useState } from "react";
 import { toast } from "sonner";
 
-import { type EnvRow, mapToRows, rowsToMap } from "@/components/agent-env/agent-env-rows";
 import { EnvVarsEditor } from "@/components/agent-env/env-vars-editor";
 import { Button } from "@/components/ui/button";
 import {
@@ -18,7 +17,7 @@ import {
 	AlertDialogTitle,
 } from "@/components/ui/dialog";
 import { Spinner } from "@/components/ui/spinner";
-import { fetchAgentEnvConfig, saveAgentEnvConfig } from "@/runtime/runtime-config-query";
+import { useAgentEnvScope } from "@/hooks/use-agent-env-scope";
 
 interface TaskEnvButtonProps {
 	taskId: string;
@@ -42,15 +41,6 @@ interface TaskEnvButtonProps {
 	onPopoverOpenChange?: (open: boolean) => void;
 }
 
-function envMapsEqual(a: AgentEnvMap, b: AgentEnvMap): boolean {
-	const aKeys = Object.keys(a);
-	const bKeys = Object.keys(b);
-	if (aKeys.length !== bKeys.length) {
-		return false;
-	}
-	return aKeys.every((key) => a[key] === b[key]);
-}
-
 /**
  * Per-task custom env editor. Edits the task scope of the hub-central env config
  * (`tasks[taskId]`), which layers over the global and project scopes.
@@ -66,42 +56,12 @@ export function TaskEnvButton({
 	onPopoverOpenChange,
 }: TaskEnvButtonProps): ReactElement {
 	const [open, setOpen] = useState(false);
-	const [config, setConfig] = useState<AgentEnvConfig | null>(null);
-	const [rows, setRows] = useState<EnvRow[]>([]);
-	const [isLoading, setIsLoading] = useState(false);
-	const [isSaving, setIsSaving] = useState(false);
+	const { rows, setRows, isDirty, varCount, isLoading, isSaving, save } = useAgentEnvScope(
+		{ kind: "task", taskId },
+		open,
+	);
 	const [confirmRestartOpen, setConfirmRestartOpen] = useState(false);
 	const [isRestarting, setIsRestarting] = useState(false);
-
-	useEffect(() => {
-		if (!open) {
-			return;
-		}
-		let cancelled = false;
-		setIsLoading(true);
-		void fetchAgentEnvConfig()
-			.then((next) => {
-				if (cancelled) {
-					return;
-				}
-				setConfig(next);
-				setRows(mapToRows(next.tasks[taskId] ?? {}));
-			})
-			.catch(() => {
-				if (!cancelled) {
-					setConfig({ global: {}, projects: {}, tasks: {} });
-					setRows([]);
-				}
-			})
-			.finally(() => {
-				if (!cancelled) {
-					setIsLoading(false);
-				}
-			});
-		return () => {
-			cancelled = true;
-		};
-	}, [open, taskId]);
 
 	// Mirror the popover (and the restart confirmation that keeps it mounted) up to
 	// the host so its own outside-click handling can ignore clicks in our portal.
@@ -109,35 +69,16 @@ export function TaskEnvButton({
 		onPopoverOpenChange?.(open || confirmRestartOpen);
 	}, [open, confirmRestartOpen, onPopoverOpenChange]);
 
-	const taskVarCount = config ? Object.keys(config.tasks[taskId] ?? {}).length : 0;
-	const hasChanges = config ? !envMapsEqual(config.tasks[taskId] ?? {}, rowsToMap(rows)) : false;
 	const busy = isSaving || isRestarting;
 
 	// Persist the edited task scope back to the hub config. Returns the saved
 	// config on success (or null on failure) so callers can chain a restart.
 	const persist = async (): Promise<AgentEnvConfig | null> => {
-		if (!config) {
-			return null;
-		}
-		const nextTasks: AgentEnvConfig["tasks"] = { ...config.tasks };
-		const nextMap = rowsToMap(rows);
-		if (Object.keys(nextMap).length > 0) {
-			nextTasks[taskId] = nextMap;
-		} else {
-			delete nextTasks[taskId];
-		}
-		const nextConfig: AgentEnvConfig = { global: config.global, projects: config.projects, tasks: nextTasks };
-		setIsSaving(true);
 		try {
-			const saved = await saveAgentEnvConfig(nextConfig);
-			setConfig(saved);
-			setRows(mapToRows(saved.tasks[taskId] ?? {}));
-			return saved;
+			return await save();
 		} catch {
 			toast.error("Failed to save task environment");
 			return null;
-		} finally {
-			setIsSaving(false);
 		}
 	};
 
@@ -174,11 +115,8 @@ export function TaskEnvButton({
 	};
 
 	const handleSaveClick = (): void => {
-		if (!config) {
-			return;
-		}
 		// A running CLI task needs a restart to pick up changed env. Confirm it first.
-		if (requiresRestartToApply && onRequestRestart && hasChanges) {
+		if (requiresRestartToApply && onRequestRestart && isDirty) {
 			setConfirmRestartOpen(true);
 			return;
 		}
@@ -205,7 +143,7 @@ export function TaskEnvButton({
 						icon={<KeyRound size={14} />}
 						aria-label="Edit environment variables for this task"
 					>
-						{`Env${taskVarCount > 0 ? ` (${taskVarCount})` : ""}`}
+						{`Env${varCount > 0 ? ` (${varCount})` : ""}`}
 					</Button>
 				</Popover.Trigger>
 				<Popover.Portal>
