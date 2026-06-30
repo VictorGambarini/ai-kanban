@@ -14,11 +14,7 @@ import { SearchSelectDropdown } from "@/components/search-select-dropdown";
 import { SkillSelectorList } from "@/components/skills/skill-selector-list";
 import { cn } from "@/components/ui/cn";
 import { NativeSelect } from "@/components/ui/native-select";
-import {
-	fetchClineProviderCatalog,
-	fetchClineProviderModels,
-	fetchWorkspaceSkills,
-} from "@/runtime/runtime-config-query";
+import { fetchClineProviderCatalog, fetchClineProviderModels } from "@/runtime/runtime-config-query";
 import type {
 	RuntimeAgentId,
 	RuntimeClineProviderCatalogItem,
@@ -27,6 +23,7 @@ import type {
 	RuntimeTaskClineSettings,
 	RuntimeWorkspaceSkill,
 } from "@/runtime/types";
+import { useWorkspaceSkills } from "@/runtime/workspace-skills-cache";
 
 // ---------------------------------------------------------------------------
 // Hook: manages fetch state for Cline provider catalog + model lists
@@ -71,7 +68,9 @@ export function useTaskAgentModelPicker({
 	const [providerModels, setProviderModels] = useState<RuntimeClineProviderModel[]>([]);
 	const [isLoadingProviders, setIsLoadingProviders] = useState(false);
 	const [isLoadingModels, setIsLoadingModels] = useState(false);
-	const [workspaceSkills, setWorkspaceSkills] = useState<RuntimeWorkspaceSkill[]>([]);
+	// Shared, cached skill list — instant on re-open once warmed, revalidated in the
+	// background. Only fetched while the picker is active.
+	const { skills: workspaceSkills } = useWorkspaceSkills(workspaceId, active);
 
 	// Derive the effective agent: explicit override takes precedence, then the global default
 	const effectiveAgentId = agentId ?? defaultAgentId ?? null;
@@ -134,27 +133,6 @@ export function useTaskAgentModelPicker({
 			cancelled = true;
 		};
 	}, [active, effectiveAgentId, effectiveProviderId, workspaceId]);
-
-	useEffect(() => {
-		if (!active) {
-			return;
-		}
-		let cancelled = false;
-		void fetchWorkspaceSkills(workspaceId)
-			.then((skills) => {
-				if (!cancelled) {
-					setWorkspaceSkills(skills);
-				}
-			})
-			.catch(() => {
-				if (!cancelled) {
-					setWorkspaceSkills([]);
-				}
-			});
-		return () => {
-			cancelled = true;
-		};
-	}, [active, workspaceId]);
 
 	const agentOptions = useMemo(() => {
 		const catalog = getRuntimeLaunchSupportedAgentCatalog();

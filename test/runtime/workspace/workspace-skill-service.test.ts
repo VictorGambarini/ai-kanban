@@ -1,12 +1,13 @@
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { parse as parseYaml } from "yaml";
 
-// ── Mock the npx skills CLI (`skills list`, `skills add`, `skills remove`) ──
-// Only the subprocess boundary is mocked; all filesystem work runs for real
+// ── Mock the npx skills CLI (`skills add`, `skills remove`) ──
+// Listing now reads skill directories directly from disk (no CLI), so only the
+// install/remove subprocess boundary is mocked. All filesystem work runs for real
 // against a temp workspace so the SKILL.md read/write roundtrip is exercised.
 const childProcessMocks = vi.hoisted(() => ({
 	execFile: vi.fn(),
@@ -29,6 +30,8 @@ import {
 } from "../../../src/workspace/workspace-skill-service";
 
 let workspace: string;
+let fakeHome: string;
+let originalHome: string | undefined;
 
 // Parse the YAML frontmatter block of a SKILL.md into an object.
 function frontmatterOf(markdown: string): Record<string, unknown> {
@@ -45,28 +48,50 @@ function findCliCall(subcommand: string): string[] {
 	return (call?.[1] ?? []) as string[];
 }
 
-// Map the mocked `skills list --json` output to whatever skills currently exist
-// on disk in the temp workspace's project-scoped .agents/skills directory.
-function mockListReturns(entries: Array<{ name: string; path: string }>): void {
-	childProcessMocks.execFilePromise.mockImplementation(async (_binary: string, args: string[]) => {
-		if (args[0] === "skills" && args[1] === "list") {
-			const isProject = args.includes("-p");
-			return {
-				stdout: isProject ? JSON.stringify(entries.map((e) => ({ ...e, scope: "project", agents: [] }))) : "[]",
-			};
-		}
-		return { stdout: "" };
-	});
+// Write a SKILL.md directly to a project skills directory (default: .agents/skills).
+async function writeSkill(
+	name: string,
+	{ description, dir = ".agents/skills", body = "body" }: { description?: string; dir?: string; body?: string } = {},
+): Promise<string> {
+	const skillDir = join(workspace, dir, name);
+	await mkdir(skillDir, { recursive: true });
+	const lines = ["---", `name: ${name}`];
+	if (description !== undefined) {
+		lines.push(`description: ${description}`);
+	}
+	lines.push("---", "", body);
+	await writeFile(join(skillDir, "SKILL.md"), `${lines.join("\n")}\n`, "utf8");
+	return skillDir;
+}
+
+// Write a skills-lock.json mapping skill names to their install source.
+async function writeLock(skills: Record<string, string>): Promise<void> {
+	const entries = Object.fromEntries(Object.entries(skills).map(([name, source]) => [name, { source }]));
+	await writeFile(
+		join(workspace, "skills-lock.json"),
+		JSON.stringify({ version: 1, skills: entries }, null, 2),
+		"utf8",
+	);
 }
 
 beforeEach(async () => {
 	workspace = await mkdtemp(join(tmpdir(), "skill-svc-test-"));
+	// Point HOME at an empty temp dir so the global skill scan is hermetic.
+	fakeHome = await mkdtemp(join(tmpdir(), "skill-svc-home-"));
+	originalHome = process.env.HOME;
+	process.env.HOME = fakeHome;
 	childProcessMocks.execFilePromise.mockReset();
-	childProcessMocks.execFilePromise.mockResolvedValue({ stdout: "[]" });
+	childProcessMocks.execFilePromise.mockResolvedValue({ stdout: "" });
 });
 
 afterEach(async () => {
+	if (originalHome === undefined) {
+		delete process.env.HOME;
+	} else {
+		process.env.HOME = originalHome;
+	}
 	await rm(workspace, { recursive: true, force: true });
+	await rm(fakeHome, { recursive: true, force: true });
 });
 
 describe("createSkill", () => {
@@ -98,11 +123,9 @@ describe("createSkill", () => {
 	});
 });
 
-describe("listSkills + frontmatter parsing", () => {
-	it("reads description and disabled flag from each skill's SKILL.md", async () => {
-		await createSkill(workspace, { name: "alpha", description: "Alpha desc", instructions: "a" });
-		const alphaDir = join(workspace, ".agents/skills/alpha");
-		mockListReturns([{ name: "alpha", path: alphaDir }]);
+describe("listSkills (disk-based)", () => {
+	it("reads name, description, and disabled flag from each skill's SKILL.md", async () => {
+		const alphaDir = await writeSkill("alpha", { description: "Alpha desc" });
 
 		const skills = await listSkills(workspace);
 		expect(skills).toHaveLength(1);
@@ -114,27 +137,60 @@ describe("listSkills + frontmatter parsing", () => {
 		});
 	});
 
-	it("deduplicates skills returned by multiple scopes", async () => {
-		await createSkill(workspace, { name: "dup", description: "d", instructions: "x" });
-		const dupDir = join(workspace, ".agents/skills/dup");
-		// Both -p and -g return the same skill; listSkills should keep one.
-		childProcessMocks.execFilePromise.mockImplementation(async (_b: string, args: string[]) => {
-			if (args[0] === "skills" && args[1] === "list") {
-				return { stdout: JSON.stringify([{ name: "dup", path: dupDir, scope: "project", agents: [] }]) };
-			}
-			return { stdout: "" };
-		});
+	it("ignores directories whose SKILL.md lacks a name or description", async () => {
+		await writeSkill("nameless-ok", { description: "has desc" });
+		await writeSkill("no-desc"); // missing description → not a listable skill
 
 		const skills = await listSkills(workspace);
-		expect(skills.filter((s) => s.name === "dup")).toHaveLength(1);
+		expect(skills.map((s) => s.name)).toEqual(["nameless-ok"]);
+	});
+
+	it("deduplicates a skill present in both .agents/skills and .claude/skills, preferring .agents", async () => {
+		const agentsDir = await writeSkill("dup", { description: "d", dir: ".agents/skills" });
+		await writeSkill("dup", { description: "d", dir: ".claude/skills" });
+
+		const skills = await listSkills(workspace);
+		const dups = skills.filter((s) => s.name === "dup");
+		expect(dups).toHaveLength(1);
+		expect(dups[0].dirPath).toBe(agentsDir);
+	});
+
+	it("groups by the source recorded in skills-lock.json", async () => {
+		await writeSkill("gstack-skill", { description: "g" });
+		await writeSkill("qa-skill", { description: "q" });
+		await writeLock({ "gstack-skill": "garrytan/gstack", "qa-skill": "mattpocock/skills" });
+
+		const skills = await listSkills(workspace);
+		const byName = new Map(skills.map((s) => [s.name, s]));
+		expect(byName.get("gstack-skill")?.installedFrom).toBe("garrytan/gstack");
+		expect(byName.get("qa-skill")?.installedFrom).toBe("mattpocock/skills");
+	});
+
+	it("normalizes a lock source URL to an owner/repo slug", async () => {
+		await writeSkill("url-skill", { description: "u" });
+		await writeLock({ "url-skill": "https://github.com/anthropics/skills.git" });
+
+		const skills = await listSkills(workspace);
+		expect(skills[0].installedFrom).toBe("anthropics/skills");
+	});
+
+	it("falls back to a legacy installedFrom frontmatter field when no lock entry exists", async () => {
+		const dir = join(workspace, ".agents/skills/legacy");
+		await mkdir(dir, { recursive: true });
+		await writeFile(
+			join(dir, "SKILL.md"),
+			"---\nname: legacy\ndescription: d\ninstalledFrom: old/source\n---\n\nbody\n",
+			"utf8",
+		);
+
+		const skills = await listSkills(workspace);
+		expect(skills[0].installedFrom).toBe("old/source");
 	});
 });
 
 describe("setSkillDisabled", () => {
 	it("toggles the disabled flag while preserving body and other frontmatter", async () => {
-		await createSkill(workspace, { name: "toggle", description: "keep me", instructions: "# Keep\nbody text" });
-		const dir = join(workspace, ".agents/skills/toggle");
-		mockListReturns([{ name: "toggle", path: dir }]);
+		const dir = await writeSkill("toggle", { description: "keep me", body: "# Keep\nbody text" });
 
 		await setSkillDisabled(workspace, "toggle", true);
 		let md = await readFile(join(dir, "SKILL.md"), "utf8");
@@ -151,7 +207,6 @@ describe("setSkillDisabled", () => {
 	});
 
 	it("throws when the skill does not exist", async () => {
-		mockListReturns([]);
 		await expect(setSkillDisabled(workspace, "ghost", true)).rejects.toThrow(/not found/);
 	});
 });
@@ -190,34 +245,35 @@ describe("installSkill", () => {
 		expect(args).toEqual(expect.arrayContaining(["--skill", "frontend-design"]));
 	});
 
-	it("stamps installedFrom/installedAt onto skills that appear after install", async () => {
-		// The skill exists on disk, but the mocked CLI list only surfaces it *after* the add.
-		await createSkill(workspace, { name: "frontend-design", description: "d", instructions: "body" });
-		const dir = join(workspace, ".agents/skills/frontend-design");
-		let listCalls = 0;
-		childProcessMocks.execFilePromise.mockImplementation(async (_b: string, args: string[]) => {
-			if (args[0] === "skills" && args[1] === "list") {
-				listCalls += 1;
-				const isProject = args.includes("-p");
-				// First project-scope list (the pre-install snapshot) sees nothing.
-				const visible = isProject && listCalls > 1;
-				return {
-					stdout: visible
-						? JSON.stringify([{ name: "frontend-design", path: dir, scope: "project", agents: [] }])
-						: "[]",
-				};
-			}
-			return { stdout: "" };
-		});
+	it("stamps installedAt onto skills the lock attributes to the installed source", async () => {
+		// The CLI is mocked (no-op), so simulate its effect: the skill files plus the
+		// lock entry recording where they came from.
+		const dir = await writeSkill("frontend-design", { description: "d" });
+		await writeLock({ "frontend-design": "anthropics/skills" });
 
 		await installSkill(workspace, "anthropics/skills", ["frontend-design"]);
 
-		const md = await readFile(join(dir, "SKILL.md"), "utf8");
-		const fm = frontmatterOf(md);
-		expect(fm.installedFrom).toBe("anthropics/skills");
+		const fm = frontmatterOf(await readFile(join(dir, "SKILL.md"), "utf8"));
+		// Grouping comes from the lock file, so installedFrom is NOT stamped into frontmatter.
+		expect(fm.installedFrom).toBeUndefined();
 		expect(typeof fm.installedAt).toBe("string");
 		expect(Number.isNaN(Date.parse(fm.installedAt as string))).toBe(false);
-		expect(md).toContain("body");
+
+		// And the skill is grouped under the lock's source.
+		const skills = await listSkills(workspace);
+		expect(skills.find((s) => s.name === "frontend-design")?.installedFrom).toBe("anthropics/skills");
+	});
+
+	it("does not re-stamp installedAt onto an unrelated source's skills", async () => {
+		const otherDir = await writeSkill("other-skill", { description: "o" });
+		const newDir = await writeSkill("new-skill", { description: "n" });
+		await writeLock({ "other-skill": "garrytan/gstack", "new-skill": "mattpocock/skills" });
+
+		await installSkill(workspace, "mattpocock/skills", ["new-skill"]);
+
+		// The previously-installed source's skill is untouched (no installedAt added).
+		expect(frontmatterOf(await readFile(join(otherDir, "SKILL.md"), "utf8")).installedAt).toBeUndefined();
+		expect(typeof frontmatterOf(await readFile(join(newDir, "SKILL.md"), "utf8")).installedAt).toBe("string");
 	});
 });
 
@@ -252,14 +308,10 @@ describe("removeSkill", () => {
 	});
 
 	it("falls back to direct directory removal when the CLI errors", async () => {
-		await createSkill(workspace, { name: "manual", instructions: "x" });
-		const dir = join(workspace, ".agents/skills/manual");
+		const dir = await writeSkill("manual", { description: "d" });
 		childProcessMocks.execFilePromise.mockImplementation(async (_b: string, args: string[]) => {
 			if (args[1] === "remove") {
 				throw new Error("not found at project scope");
-			}
-			if (args[1] === "list") {
-				return { stdout: JSON.stringify([{ name: "manual", path: dir, scope: "project", agents: [] }]) };
 			}
 			return { stdout: "" };
 		});
