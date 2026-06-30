@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.1.73]
+
+- Set custom environment variables and secrets for your agents: a new "Environment" section in Settings (global and per-project) plus a per-task Env editor let you inject values like `GH_TOKEN` for `gh`, a Jira API key, or `ANTHROPIC_*` overrides into agent sessions. Values layer task > project > global, are stored only in the hub's config file (chmod 600), and stay hub-sourced even when you're viewing a remote board. Applies to CLI agents (Claude Code, Codex, Gemini, …); the in-process Cline agent inherits the runtime environment instead
+- Set a task's environment before it starts, and change it while it runs: backlog cards expose the Env editor in their inline editor (under Override Agent Settings) so values apply on first launch, and editing env on an In Progress/Review task prompts to restart the agent CLI so the new values take effect — the agent resumes its own session
+- Long Cline agent sessions stay smooth: the chat panel now virtualizes its message list, so only on-screen messages render. Sessions with hundreds of messages no longer get sluggish, and large diffs no longer spike CPU during streaming. Auto-scroll still sticks to the newest message only while you're already at the bottom, so scrolling up to read history is left undisturbed
+
 ## [0.1.72]
 
 - Pick a model per task for CLI agents (Claude Code, Codex, Droid, Gemini): each task's "Override Agent Settings" now has a Model picker (curated dropdown plus free-text Custom entry) that's injected as the agent's `--model` flag at launch. Cline keeps its existing provider/model selector
