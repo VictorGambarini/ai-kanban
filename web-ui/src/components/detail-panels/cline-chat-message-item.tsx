@@ -1,6 +1,6 @@
 import * as Collapsible from "@radix-ui/react-collapsible";
 import { Brain, ChevronDown, ChevronRight, XCircle } from "lucide-react";
-import { type ReactElement, useEffect, useMemo, useRef, useState } from "react";
+import { memo, type ReactElement, useEffect, useMemo, useRef, useState } from "react";
 import {
 	formatToolInputForDisplay,
 	getToolDisplay,
@@ -175,7 +175,16 @@ function ReasoningMessageBlock({ message }: { message: ClineChatMessage }): Reac
 	);
 }
 
-export function ClineChatMessageItem({ message }: { message: ClineChatMessage }): ReactElement {
+// Memoized so streaming/parent re-renders don't recompute every mounted message.
+// Message objects are replaced by reference only when their content changes (see
+// upsertMessage/areMessagesEqual in use-cline-chat-session), so a shallow prop
+// compare is enough — and it keeps large diffs from re-highlighting on each tick
+// (cline/kanban#267).
+export const ClineChatMessageItem = memo(function ClineChatMessageItem({
+	message,
+}: {
+	message: ClineChatMessage;
+}): ReactElement {
 	if (message.role === "tool") {
 		return <ToolMessageBlock message={message} />;
 	}
@@ -209,4 +218,6 @@ export function ClineChatMessageItem({ message }: { message: ClineChatMessage })
 			{message.content}
 		</div>
 	);
-}
+});
+
+ClineChatMessageItem.displayName = "ClineChatMessageItem";

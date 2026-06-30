@@ -1,5 +1,5 @@
 import Prism from "prismjs";
-import type { ReactElement, ReactNode } from "react";
+import { type ComponentPropsWithoutRef, memo, type ReactElement, type ReactNode, useMemo } from "react";
 import "prismjs/components/prism-bash";
 import "prismjs/components/prism-c";
 import "prismjs/components/prism-clike";
@@ -23,7 +23,7 @@ import "prismjs/components/prism-swift";
 import "prismjs/components/prism-tsx";
 import "prismjs/components/prism-typescript";
 import "prismjs/components/prism-yaml";
-import type { Components } from "react-markdown";
+import type { Components, ExtraProps } from "react-markdown";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 
@@ -77,6 +77,57 @@ function toCodeString(children: ReactNode): string {
 	return value.endsWith("\n") ? value.slice(0, -1) : value;
 }
 
+// Syntax highlighting is the dominant per-render cost in long sessions with big
+// diffs (cline/kanban#267). Memoize the Prism pass on the derived (code, language)
+// so streaming re-renders only re-highlight the block that actually changed —
+// completed code blocks reuse their cached HTML.
+function MarkdownCode({ className, children }: ComponentPropsWithoutRef<"code"> & ExtraProps): ReactElement {
+	const code = toCodeString(children);
+	const isInline = !className || !className.includes("language-");
+
+	const highlighted = useMemo(() => {
+		if (isInline) {
+			return null;
+		}
+		const prismLanguage = normalizeLanguageTag(className);
+		const prismGrammar = prismLanguage ? (Prism.languages[prismLanguage] ?? null) : null;
+		if (!prismGrammar || !prismLanguage) {
+			return null;
+		}
+		return { html: Prism.highlight(code, prismGrammar, prismLanguage), language: prismLanguage };
+	}, [code, className, isInline]);
+
+	if (isInline) {
+		return (
+			<code
+				className={cn(
+					"rounded bg-surface-2 px-1 py-0.5 font-mono text-xs whitespace-pre-wrap break-all text-text-primary",
+					className,
+				)}
+			>
+				{code}
+			</code>
+		);
+	}
+
+	if (highlighted) {
+		return (
+			<pre className="my-0.5 overflow-x-auto rounded-md border border-border bg-surface-1 px-2 py-1.5 text-xs leading-5 text-text-primary">
+				<code
+					className={`language-${highlighted.language}`}
+					dangerouslySetInnerHTML={{ __html: highlighted.html }}
+				/>
+			</pre>
+		);
+	}
+
+	return (
+		<pre className="my-0.5 overflow-x-auto rounded-md border border-border bg-surface-1 px-2 py-1.5 text-xs leading-5 text-text-primary">
+			<code className={cn("font-mono", className)}>{code}</code>
+		</pre>
+	);
+}
+
 const markdownComponents: Components = {
 	h1: ({ className, ...props }) => (
 		<h1 className={cn("mt-3 text-base font-semibold text-text-primary", className)} {...props} />
@@ -109,44 +160,14 @@ const markdownComponents: Components = {
 		/>
 	),
 	hr: ({ className, ...props }) => <hr className={cn("border-border", className)} {...props} />,
-	code: ({ className, children, ...props }) => {
-		const code = toCodeString(children);
-		const isInline = !className || !className.includes("language-");
-		if (isInline) {
-			return (
-				<code
-					className={cn(
-						"rounded bg-surface-2 px-1 py-0.5 font-mono text-xs whitespace-pre-wrap break-all text-text-primary",
-						className,
-					)}
-					{...props}
-				>
-					{code}
-				</code>
-			);
-		}
-
-		const prismLanguage = normalizeLanguageTag(className);
-		const prismGrammar = prismLanguage ? (Prism.languages[prismLanguage] ?? null) : null;
-		const highlighted = prismGrammar && prismLanguage ? Prism.highlight(code, prismGrammar, prismLanguage) : null;
-
-		if (highlighted) {
-			return (
-				<pre className="my-0.5 overflow-x-auto rounded-md border border-border bg-surface-1 px-2 py-1.5 text-xs leading-5 text-text-primary">
-					<code className={`language-${prismLanguage}`} dangerouslySetInnerHTML={{ __html: highlighted }} />
-				</pre>
-			);
-		}
-
-		return (
-			<pre className="my-0.5 overflow-x-auto rounded-md border border-border bg-surface-1 px-2 py-1.5 text-xs leading-5 text-text-primary">
-				<code className={cn("font-mono", className)}>{code}</code>
-			</pre>
-		);
-	},
+	code: MarkdownCode,
 };
 
-export function ClineMarkdownContent({ content }: { content: string }): ReactElement {
+export const ClineMarkdownContent = memo(function ClineMarkdownContent({
+	content,
+}: {
+	content: string;
+}): ReactElement {
 	if (!content.trim()) {
 		return <span className="text-text-secondary" />;
 	}
@@ -157,4 +178,6 @@ export function ClineMarkdownContent({ content }: { content: string }): ReactEle
 			</ReactMarkdown>
 		</div>
 	);
-}
+});
+
+ClineMarkdownContent.displayName = "ClineMarkdownContent";

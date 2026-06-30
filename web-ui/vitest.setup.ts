@@ -66,6 +66,23 @@ Object.defineProperty(globalThis, "IntersectionObserver", {
 	value: MockIntersectionObserver,
 });
 
+// jsdom does not implement ResizeObserver, which react-virtuoso (the chat panel's
+// virtualized message list) relies on. A no-op stub is enough: jsdom reports zero
+// layout, so Virtuoso renders all items in tests and content assertions still hold.
+class MockResizeObserver implements ResizeObserver {
+	disconnect(): void {}
+
+	observe(_target: Element): void {}
+
+	unobserve(_target: Element): void {}
+}
+
+Object.defineProperty(globalThis, "ResizeObserver", {
+	writable: true,
+	configurable: true,
+	value: MockResizeObserver,
+});
+
 // jsdom does not implement window.matchMedia. Provide a minimal stub so that
 // hooks like useIsMobile and react-use's useMedia work during tests.
 if (typeof window !== "undefined" && typeof window.matchMedia !== "function") {

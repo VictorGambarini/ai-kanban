@@ -8,11 +8,11 @@ import React, {
 	useCallback,
 	useEffect,
 	useImperativeHandle,
-	useLayoutEffect,
 	useMemo,
 	useRef,
 	useState,
 } from "react";
+import { type Components, Virtuoso } from "react-virtuoso";
 
 import { ClineChatComposer } from "@/components/detail-panels/cline-chat-composer";
 import { ClineChatMessageItem } from "@/components/detail-panels/cline-chat-message-item";
@@ -55,6 +55,47 @@ const ClineCreditLimitNotice = React.memo(function ClineCreditLimitNotice() {
 		</div>
 	);
 });
+
+// Context handed to the virtualized list's Header/Footer so they can render the
+// streaming/credit indicators below the messages without re-creating component
+// identities on every panel render (which would remount them each keystroke).
+interface ClineChatListContext {
+	showAgentProgressIndicator: boolean;
+	isCreditLimitNoticeVisible: boolean;
+}
+
+// Top spacer that reproduces the old container's `py-3` leading padding inside
+// the Virtuoso scroller (virtualized items can't rely on container padding).
+function ClineChatListHeader(): ReactElement {
+	return <div className="h-3" />;
+}
+
+function ClineChatListFooter({ context }: { context?: ClineChatListContext }): ReactElement {
+	return (
+		<div className="flex flex-col gap-2 px-2 pb-3">
+			{context?.showAgentProgressIndicator ? <ClineThinkingIndicator /> : null}
+			{context?.isCreditLimitNoticeVisible ? <ClineCreditLimitNotice /> : null}
+		</div>
+	);
+}
+
+// Stable component map: identity must not change between renders or Virtuoso
+// remounts the Header/Footer (collapsing reasoning blocks, losing focus, etc.).
+const clineChatListComponents: Components<ClineChatMessage, ClineChatListContext> = {
+	Header: ClineChatListHeader,
+	Footer: ClineChatListFooter,
+};
+
+function renderClineChatMessageItem(_index: number, message: ClineChatMessage): ReactElement {
+	// `flex flex-col` preserves the per-message auto-margin alignment (e.g. the
+	// right-aligned `ml-auto` user bubble) that the old flex column provided,
+	// while `pb-2` restores the inter-message `gap-2` spacing.
+	return (
+		<div className="flex flex-col px-2 pb-2">
+			<ClineChatMessageItem message={message} />
+		</div>
+	);
+}
 
 export interface ClineAgentChatPanelHandle {
 	appendToDraft: (text: string) => void;
@@ -141,7 +182,6 @@ export const ClineAgentChatPanel = React.forwardRef<ClineAgentChatPanelHandle, C
 			showReviewActions,
 			showAgentProgressIndicator,
 			showActionFooter,
-			showCancelAutomaticAction,
 			handleSendText,
 			handleSendDraft,
 			handleCancelTurn,
@@ -161,11 +201,9 @@ export const ClineAgentChatPanel = React.forwardRef<ClineAgentChatPanelHandle, C
 			cancelAutomaticActionLabel,
 			showMoveToTrash,
 		});
-		const scrollContainerRef = useRef<HTMLDivElement | null>(null);
 		// TODO: Persist per-task mode immediately when toggled so page refresh restores unsent mode changes.
 		const modeByTaskIdRef = useRef<Map<string, RuntimeTaskSessionMode>>(new Map());
 		const [composerError, setComposerError] = useState<string | null>(null);
-		const [isAutoScrollEnabled, setIsAutoScrollEnabled] = useState(true);
 		const [isSavingModel, setIsSavingModel] = useState(false);
 		const isCreditLimitNoticeVisible = summary?.latestHookActivity?.notificationType === "credit_limit";
 		const [mode, setMode] = useState<RuntimeTaskSessionMode>(() => {
@@ -222,43 +260,20 @@ export const ClineAgentChatPanel = React.forwardRef<ClineAgentChatPanelHandle, C
 				? "The selected Cline model may not accept image input. Choose a vision-capable model to use these images."
 				: null;
 
-		const isPinnedToBottom = useCallback((container: HTMLDivElement): boolean => {
-			const remainingDistance = container.scrollHeight - container.scrollTop - container.clientHeight;
-			return remainingDistance <= BOTTOM_LOCK_THRESHOLD_PX;
-		}, []);
-
-		const handleMessageListScroll = useCallback(() => {
-			const container = scrollContainerRef.current;
-			if (!container) {
-				return;
-			}
-			const nextIsAutoScrollEnabled = isPinnedToBottom(container);
-			setIsAutoScrollEnabled((currentValue) =>
-				currentValue === nextIsAutoScrollEnabled ? currentValue : nextIsAutoScrollEnabled,
-			);
-		}, [isPinnedToBottom]);
-
-		useLayoutEffect(() => {
-			const container = scrollContainerRef.current;
-			if (!container || !isAutoScrollEnabled) {
-				return;
-			}
-			container.scrollTop = container.scrollHeight;
-		}, [
-			isAutoScrollEnabled,
-			messages,
-			showAgentProgressIndicator,
-			showActionFooter,
-			showReviewActions,
-			showCancelAutomaticAction,
-		]);
+		// Virtuoso owns scroll position now. `followOutput="auto"` keeps the view
+		// pinned to the newest message only while the user is already at the bottom,
+		// matching the old BOTTOM_LOCK_THRESHOLD_PX behavior; scrolling up to read
+		// history is left undisturbed.
+		const listContext = useMemo<ClineChatListContext>(
+			() => ({
+				showAgentProgressIndicator,
+				isCreditLimitNoticeVisible,
+			}),
+			[showAgentProgressIndicator, isCreditLimitNoticeVisible],
+		);
 
 		useEffect(() => {
 			setComposerError(null);
-		}, [taskId]);
-
-		useEffect(() => {
-			setIsAutoScrollEnabled(true);
 		}, [taskId]);
 
 		useEffect(() => {
@@ -412,17 +427,20 @@ export const ClineAgentChatPanel = React.forwardRef<ClineAgentChatPanelHandle, C
 
 		return (
 			<div className="flex min-h-0 min-w-0 flex-1 flex-col">
-				<div
-					ref={scrollContainerRef}
-					className="flex min-h-0 min-w-0 flex-1 flex-col gap-2 overflow-x-hidden overflow-y-auto px-2 py-3"
-					onScroll={handleMessageListScroll}
-				>
-					{messages.map((message) => (
-						<ClineChatMessageItem key={message.id} message={message} />
-					))}
-					{showAgentProgressIndicator ? <ClineThinkingIndicator /> : null}
-					{isCreditLimitNoticeVisible ? <ClineCreditLimitNotice /> : null}
-				</div>
+				<Virtuoso
+					// Remount per task so the new conversation starts pinned at the
+					// bottom and Virtuoso's measurement cache resets cleanly.
+					key={taskId}
+					data={messages}
+					context={listContext}
+					className="min-h-0 min-w-0 flex-1 overflow-x-hidden"
+					components={clineChatListComponents}
+					computeItemKey={(_index, message) => message.id}
+					itemContent={renderClineChatMessageItem}
+					initialTopMostItemIndex={Math.max(0, messages.length - 1)}
+					followOutput="auto"
+					atBottomThreshold={BOTTOM_LOCK_THRESHOLD_PX}
+				/>
 				{panelError ? (
 					<div className="border-t border-status-red/30 bg-status-red/10 px-2 py-2 text-xs text-status-red">
 						{panelError}
