@@ -252,10 +252,14 @@ describe("CardDetailView", () => {
 			expandButton.click();
 		});
 
-		const toolbarButtons = Array.from(container.querySelectorAll("button"));
-		expect(toolbarButtons[0]?.getAttribute("aria-label")).toBe("Collapse expanded diff view");
-		expect(toolbarButtons[1]?.textContent?.trim()).toBe("All Changes");
-		expect(toolbarButtons[2]?.textContent?.trim()).toBe("Last Turn");
+		// Scope to the expanded diff toolbar: other control bars (e.g. the per-task
+		// env button) also render buttons, so assert by toolbar membership not global order.
+		const collapseButton = container.querySelector('button[aria-label="Collapse expanded diff view"]');
+		expect(collapseButton).toBeInstanceOf(HTMLButtonElement);
+		const diffToolbarButtons = Array.from(collapseButton?.parentElement?.querySelectorAll("button") ?? []);
+		expect(diffToolbarButtons[0]?.getAttribute("aria-label")).toBe("Collapse expanded diff view");
+		expect(diffToolbarButtons[1]?.textContent?.trim()).toBe("All Changes");
+		expect(diffToolbarButtons[2]?.textContent?.trim()).toBe("Last Turn");
 		expect(container.querySelector('button[aria-label="Expand split diff view"]')).toBeNull();
 
 		await act(async () => {

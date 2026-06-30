@@ -1,12 +1,14 @@
-import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { delimiter, join } from "node:path";
 
 import { describe, expect, it } from "vitest";
 
 import {
+	loadAgentEnvConfig,
 	loadGlobalRuntimeConfig,
 	loadRuntimeConfig,
 	pickBestInstalledAgentIdFromDetected,
+	saveAgentEnvConfig,
 	saveRuntimeConfig,
 	updateRuntimeConfig,
 } from "../../../src/config/runtime-config";
@@ -465,6 +467,49 @@ describe.sequential("runtime-config auto agent selection", () => {
 				const reloaded = await loadRuntimeConfig(tempProject);
 				expect(reloaded.selectedAgentId).toBe("codex");
 				expect(reloaded.agentAutonomousModeEnabled).toBe(false);
+			});
+		} finally {
+			cleanupProject();
+			cleanupHome();
+		}
+	});
+});
+
+describe.sequential("runtime-config agent env", () => {
+	it("persists, reloads, restricts perms, and preserves env across unrelated writes", async () => {
+		if (process.platform === "win32") {
+			return;
+		}
+		const { path: tempHome, cleanup: cleanupHome } = createTempDir("kanban-home-agent-env-");
+		const { path: tempProject, cleanup: cleanupProject } = createTempDir("kanban-project-agent-env-");
+		try {
+			await withTemporaryEnv({ home: tempHome }, async () => {
+				const saved = await saveAgentEnvConfig({
+					global: { GH_TOKEN: "ghp_global", "BAD-KEY": "dropped" },
+					projects: { "proj-a": { JIRA_API_KEY: "jira" } },
+					tasks: { "task-1": { CUSTOM: "value" } },
+				});
+				expect(saved.global).toEqual({ GH_TOKEN: "ghp_global" });
+				expect(saved.projects).toEqual({ "proj-a": { JIRA_API_KEY: "jira" } });
+				expect(saved.tasks).toEqual({ "task-1": { CUSTOM: "value" } });
+
+				const reloaded = await loadAgentEnvConfig();
+				expect(reloaded).toEqual(saved);
+
+				const configPath = join(tempHome, ".cline", "kanban", "config.json");
+				const mode = statSync(configPath).mode & 0o777;
+				expect(mode).toBe(0o600);
+
+				// An unrelated config write must not drop the env config.
+				await updateRuntimeConfig(tempProject, { agentAutonomousModeEnabled: false });
+				const afterUnrelatedWrite = await loadAgentEnvConfig();
+				expect(afterUnrelatedWrite).toEqual(saved);
+
+				// Saving an empty config removes the key entirely.
+				const cleared = await saveAgentEnvConfig({ global: {}, projects: {}, tasks: {} });
+				expect(cleared).toEqual({ global: {}, projects: {}, tasks: {} });
+				const rawAfterClear = JSON.parse(readFileSync(configPath, "utf8")) as { agentEnv?: unknown };
+				expect(rawAfterClear.agentEnv).toBeUndefined();
 			});
 		} finally {
 			cleanupProject();

@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { agentEnvConfigSchema, agentEnvMapSchema } from "./agent-env.js";
 import { resolveTaskTitle } from "./task-title.js";
 
 export const runtimeWorkspaceFileStatusSchema = z.enum([
@@ -992,6 +993,13 @@ export const runtimeConfigResponseSchema = z.object({
 });
 export type RuntimeConfigResponse = z.infer<typeof runtimeConfigResponseSchema>;
 
+/** Hub-central custom agent env config, returned/accepted by the env endpoints. */
+export const runtimeAgentEnvConfigResponseSchema = agentEnvConfigSchema;
+export type RuntimeAgentEnvConfigResponse = z.infer<typeof runtimeAgentEnvConfigResponseSchema>;
+
+export const runtimeAgentEnvSaveRequestSchema = agentEnvConfigSchema;
+export type RuntimeAgentEnvSaveRequest = z.infer<typeof runtimeAgentEnvSaveRequestSchema>;
+
 export const runtimeConfigSaveRequestSchema = z.object({
 	selectedAgentId: runtimeAgentIdSchema.optional(),
 	selectedShortcutLabel: z.string().nullable().optional(),
@@ -1019,6 +1027,13 @@ export const runtimeTaskSessionStartRequestSchema = z.object({
 	cliModel: z.string().optional(),
 	clineSettings: runtimeTaskClineSettingsSchema.optional(),
 	skillNames: z.array(z.string()).optional(),
+	/**
+	 * Effective custom env vars for this launch, already resolved on the hub from
+	 * the global/project/task scopes (see {@link resolveEffectiveAgentEnv}). The
+	 * runtime applies these verbatim when spawning the agent, so the same set
+	 * reaches the agent whether it runs locally or on a proxied remote host.
+	 */
+	env: agentEnvMapSchema.optional(),
 });
 export type RuntimeTaskSessionStartRequest = z.infer<typeof runtimeTaskSessionStartRequestSchema>;
 
@@ -1055,6 +1070,24 @@ export const runtimeTaskSessionStopResponseSchema = z.object({
 	error: z.string().optional(),
 });
 export type RuntimeTaskSessionStopResponse = z.infer<typeof runtimeTaskSessionStopResponseSchema>;
+
+/**
+ * Restart a running CLI agent task so freshly-saved custom env (the
+ * `tasks[taskId]` scope) takes effect — env is injected at process spawn, so a
+ * live session can't pick it up without re-spawning. The runtime re-resolves the
+ * effective env from the hub config itself; the request only carries the taskId.
+ */
+export const runtimeTaskSessionRestartEnvRequestSchema = z.object({
+	taskId: z.string(),
+});
+export type RuntimeTaskSessionRestartEnvRequest = z.infer<typeof runtimeTaskSessionRestartEnvRequestSchema>;
+
+export const runtimeTaskSessionRestartEnvResponseSchema = z.object({
+	ok: z.boolean(),
+	summary: runtimeTaskSessionSummarySchema.nullable(),
+	error: z.string().optional(),
+});
+export type RuntimeTaskSessionRestartEnvResponse = z.infer<typeof runtimeTaskSessionRestartEnvResponseSchema>;
 
 export const runtimeTaskSessionInputRequestSchema = z.object({
 	taskId: z.string(),

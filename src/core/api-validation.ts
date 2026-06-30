@@ -1,6 +1,7 @@
 import { z } from "zod";
 
 import {
+	type RuntimeAgentEnvSaveRequest,
 	type RuntimeClineAccountSwitchRequest,
 	type RuntimeClineAddProviderRequest,
 	type RuntimeClineDeviceAuthCompleteRequest,
@@ -24,6 +25,7 @@ import {
 	type RuntimeTaskChatReloadRequest,
 	type RuntimeTaskChatSendRequest,
 	type RuntimeTaskSessionInputRequest,
+	type RuntimeTaskSessionRestartEnvRequest,
 	type RuntimeTaskSessionStartRequest,
 	type RuntimeTaskSessionStopRequest,
 	type RuntimeTaskSkillsSyncRequest,
@@ -34,6 +36,7 @@ import {
 	type RuntimeWorkspaceStateSaveRequest,
 	type RuntimeWorktreeDeleteRequest,
 	type RuntimeWorktreeEnsureRequest,
+	runtimeAgentEnvSaveRequestSchema,
 	runtimeClineAccountSwitchRequestSchema,
 	runtimeClineAddProviderRequestSchema,
 	runtimeClineDeviceAuthCompleteRequestSchema,
@@ -57,6 +60,7 @@ import {
 	runtimeTaskChatReloadRequestSchema,
 	runtimeTaskChatSendRequestSchema,
 	runtimeTaskSessionInputRequestSchema,
+	runtimeTaskSessionRestartEnvRequestSchema,
 	runtimeTaskSessionStartRequestSchema,
 	runtimeTaskSessionStopRequestSchema,
 	runtimeTaskSkillsSyncRequestSchema,
@@ -209,6 +213,10 @@ export function parseRuntimeConfigSaveRequest(value: unknown): RuntimeConfigSave
 	return parseWithSchema(runtimeConfigSaveRequestSchema, value);
 }
 
+export function parseAgentEnvSaveRequest(value: unknown): RuntimeAgentEnvSaveRequest {
+	return parseWithSchema(runtimeAgentEnvSaveRequestSchema, value);
+}
+
 export function parseCommandRunRequest(value: unknown): RuntimeCommandRunRequest {
 	const parsed = parseWithSchema(runtimeCommandRunRequestSchema, value);
 	const command = parsed.command.trim();
@@ -259,6 +267,17 @@ export function parseTaskSessionStopRequest(value: unknown): RuntimeTaskSessionS
 	const taskId = parsed.taskId.trim();
 	if (!taskId) {
 		throw new Error("Invalid task session stop payload.");
+	}
+	return {
+		taskId,
+	};
+}
+
+export function parseTaskSessionRestartEnvRequest(value: unknown): RuntimeTaskSessionRestartEnvRequest {
+	const parsed = parseWithSchema(runtimeTaskSessionRestartEnvRequestSchema, value);
+	const taskId = parsed.taskId.trim();
+	if (!taskId) {
+		throw new Error("Invalid task session restart payload.");
 	}
 	return {
 		taskId,

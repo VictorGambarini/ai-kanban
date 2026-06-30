@@ -7,6 +7,7 @@ import { useCallback } from "react";
 import { notifyError } from "@/components/app-toaster";
 import { selectNewestTaskSessionSummary } from "@/hooks/home-sidebar-agent-panel-session-summary";
 import { type ClineChatActionResult, useClineChatRuntimeActions } from "@/hooks/use-cline-chat-runtime-actions";
+import { resolveLaunchAgentEnv } from "@/runtime/agent-env-launch";
 import { estimateTaskSessionGeometry } from "@/runtime/task-session-geometry";
 import { getRuntimeTrpcClient } from "@/runtime/trpc-client";
 import type {
@@ -53,6 +54,7 @@ export interface UseTaskSessionsResult {
 	ensureTaskWorkspace: (task: BoardCard) => Promise<EnsureTaskWorkspaceResult>;
 	startTaskSession: (task: BoardCard, options?: StartTaskSessionOptions) => Promise<StartTaskSessionResult>;
 	stopTaskSession: (taskId: string) => Promise<void>;
+	restartTaskSessionEnv: (taskId: string) => Promise<StartTaskSessionResult>;
 	sendTaskSessionInput: (
 		taskId: string,
 		text: string,
@@ -154,6 +156,7 @@ export function useTaskSessions({ currentProjectId, setSessions }: UseTaskSessio
 				const trpcClient = getRuntimeTrpcClient(currentProjectId);
 				const geometry =
 					getTerminalGeometry(task.id) ?? estimateTaskSessionGeometry(window.innerWidth, window.innerHeight);
+				const env = await resolveLaunchAgentEnv({ projectId: currentProjectId, taskId: task.id });
 				const payload = await trpcClient.runtime.startTaskSession.mutate({
 					taskId: task.id,
 					prompt: kickoffPrompt,
@@ -168,6 +171,7 @@ export function useTaskSessions({ currentProjectId, setSessions }: UseTaskSessio
 					cliModel: task.cliModel,
 					clineSettings: task.clineSettings,
 					skillNames: task.skillNames,
+					env,
 				});
 				if (!payload.ok || !payload.summary) {
 					return {
@@ -201,6 +205,32 @@ export function useTaskSessions({ currentProjectId, setSessions }: UseTaskSessio
 			}
 		},
 		[currentProjectId],
+	);
+
+	// Restart a running CLI agent so freshly-saved custom env applies (env is
+	// injected at spawn). The runtime re-resolves the effective env itself, so we
+	// only pass the taskId. The agent resumes from its persisted session.
+	const restartTaskSessionEnv = useCallback(
+		async (taskId: string): Promise<StartTaskSessionResult> => {
+			if (!currentProjectId) {
+				return { ok: false, message: "No project selected." };
+			}
+			try {
+				const trpcClient = getRuntimeTrpcClient(currentProjectId);
+				const payload = await trpcClient.runtime.restartTaskSessionEnv.mutate({ taskId });
+				if (!payload.ok) {
+					return { ok: false, message: payload.error ?? "Could not restart the task." };
+				}
+				if (payload.summary) {
+					upsertSession(payload.summary);
+				}
+				return { ok: true };
+			} catch (error) {
+				const message = error instanceof Error ? error.message : String(error);
+				return { ok: false, message };
+			}
+		},
+		[currentProjectId, upsertSession],
 	);
 
 	const sendTaskSessionInput = useCallback(
@@ -290,6 +320,7 @@ export function useTaskSessions({ currentProjectId, setSessions }: UseTaskSessio
 		ensureTaskWorkspace,
 		startTaskSession,
 		stopTaskSession,
+		restartTaskSessionEnv,
 		sendTaskSessionInput,
 		sendTaskChatMessage,
 		abortTaskChatTurn,
