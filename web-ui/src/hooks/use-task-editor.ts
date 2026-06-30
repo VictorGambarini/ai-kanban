@@ -1,6 +1,8 @@
+import type { AgentEnvMap } from "@runtime-agent-env";
 import { deriveTaskTitleFromPrompt } from "@runtime-task-title";
 import type { Dispatch, SetStateAction } from "react";
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { toast } from "sonner";
 
 import {
 	normalizeStoredTaskAutoReviewMode,
@@ -8,6 +10,7 @@ import {
 	TASK_AUTO_REVIEW_MODE_STORAGE_KEY,
 	TASK_START_IN_PLAN_MODE_STORAGE_KEY,
 } from "@/hooks/app-utils";
+import { queueTaskEnvWrite } from "@/runtime/pending-agent-env-writes";
 import type { RuntimeAgentId, RuntimeTaskClineSettings } from "@/runtime/types";
 import { addTaskToColumnWithResult, findCardSelection, updateTask, updateTaskTitle } from "@/state/board-state";
 import { readLastUsedSkillNames, recordSkillSelection } from "@/storage/skill-preferences";
@@ -58,6 +61,8 @@ export interface UseTaskEditorResult {
 	setNewTaskClineSettings: Dispatch<SetStateAction<RuntimeTaskClineSettings | undefined>>;
 	newTaskSkillNames: string[];
 	setNewTaskSkillNames: Dispatch<SetStateAction<string[]>>;
+	newTaskEnv: AgentEnvMap;
+	setNewTaskEnv: Dispatch<SetStateAction<AgentEnvMap>>;
 	editingTaskId: string | null;
 	editTaskPrompt: string;
 	setEditTaskPrompt: Dispatch<SetStateAction<string>>;
@@ -135,6 +140,8 @@ export function useTaskEditor({
 	const [newTaskClineSettings, setNewTaskClineSettings] = useState<RuntimeTaskClineSettings | undefined>(undefined);
 	// New tasks default to the last selection made in this workspace (see skill-preferences).
 	const [newTaskSkillNames, setNewTaskSkillNames] = useState<string[]>(() => readLastUsedSkillNames(currentProjectId));
+	// Custom env for a not-yet-created task; persisted to the hub config once the task has an id.
+	const [newTaskEnv, setNewTaskEnv] = useState<AgentEnvMap>({});
 	const [editTaskAgentId, setEditTaskAgentId] = useState<RuntimeAgentId | undefined>(undefined);
 	const [editTaskCliModel, setEditTaskCliModel] = useState<string | undefined>(undefined);
 	const [editTaskClineSettings, setEditTaskClineSettings] = useState<RuntimeTaskClineSettings | undefined>(undefined);
@@ -225,6 +232,7 @@ export function useTaskEditor({
 		setNewTaskCliModel(undefined);
 		setNewTaskClineSettings(undefined);
 		setNewTaskSkillNames(readLastUsedSkillNames(currentProjectId));
+		setNewTaskEnv({});
 		setIsInlineTaskCreateOpen(true);
 	}, [currentProjectId]);
 
@@ -238,6 +246,7 @@ export function useTaskEditor({
 		setNewTaskCliModel(undefined);
 		setNewTaskClineSettings(undefined);
 		setNewTaskSkillNames(readLastUsedSkillNames(currentProjectId));
+		setNewTaskEnv({});
 	}, [currentProjectId, resolvedDefaultTaskBranchRef]);
 
 	const handleOpenEditTask = useCallback(
@@ -398,6 +407,13 @@ export function useTaskEditor({
 			}
 
 			recordSkillSelection(currentProjectId, newTaskSkillNames);
+			// Persist the create-time env now that the task has an id. The launch path
+			// awaits this write (see pending-agent-env-writes) so "Create & start" sees it.
+			if (Object.keys(newTaskEnv).length > 0) {
+				void queueTaskEnvWrite(created.task.id, newTaskEnv).catch(() => {
+					toast.error("Task created, but saving its environment variables failed");
+				});
+			}
 			setNewTaskPrompt("");
 			setNewTaskImages([]);
 			setNewTaskBranchRef(baseRef);
@@ -405,6 +421,7 @@ export function useTaskEditor({
 			setNewTaskCliModel(undefined);
 			setNewTaskClineSettings(undefined);
 			setNewTaskSkillNames(readLastUsedSkillNames(currentProjectId));
+			setNewTaskEnv({});
 			if (!options?.keepDialogOpen) {
 				setIsInlineTaskCreateOpen(false);
 			}
@@ -420,6 +437,7 @@ export function useTaskEditor({
 			newTaskBranchRef,
 			newTaskClineSettings,
 			newTaskSkillNames,
+			newTaskEnv,
 			newTaskImages,
 			newTaskPrompt,
 			newTaskStartInPlanMode,
@@ -529,6 +547,7 @@ export function useTaskEditor({
 		setNewTaskCliModel(undefined);
 		setNewTaskClineSettings(undefined);
 		setNewTaskSkillNames(readLastUsedSkillNames(currentProjectId));
+		setNewTaskEnv({});
 	}, [currentProjectId]);
 
 	return {
@@ -554,6 +573,8 @@ export function useTaskEditor({
 		setNewTaskClineSettings,
 		newTaskSkillNames,
 		setNewTaskSkillNames,
+		newTaskEnv,
+		setNewTaskEnv,
 		editingTaskId,
 		editTaskPrompt,
 		setEditTaskPrompt,

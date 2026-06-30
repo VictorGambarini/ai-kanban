@@ -9,6 +9,7 @@
 // custom env.
 import { type AgentEnvMap, resolveEffectiveAgentEnv } from "@runtime-agent-env";
 
+import { whenTaskEnvWriteSettled } from "@/runtime/pending-agent-env-writes";
 import { fetchAgentEnvConfig } from "@/runtime/runtime-config-query";
 
 export async function resolveLaunchAgentEnv(scope: {
@@ -16,6 +17,11 @@ export async function resolveLaunchAgentEnv(scope: {
 	taskId?: string | null;
 }): Promise<AgentEnvMap | undefined> {
 	try {
+		// A task created with env in the create dialog persists it asynchronously;
+		// wait for that write before reading so "Create & start" sees it.
+		if (scope.taskId) {
+			await whenTaskEnvWriteSettled(scope.taskId);
+		}
 		const config = await fetchAgentEnvConfig();
 		const resolved = resolveEffectiveAgentEnv(config, scope);
 		return Object.keys(resolved).length > 0 ? resolved : undefined;

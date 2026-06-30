@@ -134,6 +134,7 @@ export function TaskInlineCreateCard({
 	const containerRef = useRef<HTMLDivElement | null>(null);
 	const [isBranchPopoverOpen, setIsBranchPopoverOpen] = useState(false);
 	const [isModelPickerPopoverOpen, setIsModelPickerPopoverOpen] = useState(false);
+	const [isEnvPopoverOpen, setIsEnvPopoverOpen] = useState(false);
 	const setCardRef = useCallback(
 		(node: HTMLDivElement | null) => {
 			containerRef.current = node;
@@ -193,7 +194,7 @@ export function TaskInlineCreateCard({
 	useDocumentEvent(
 		"pointerdown",
 		(event) => {
-			if (!enabled || mode !== "edit" || isBranchPopoverOpen || isModelPickerPopoverOpen) {
+			if (!enabled || mode !== "edit" || isBranchPopoverOpen || isModelPickerPopoverOpen || isEnvPopoverOpen) {
 				return;
 			}
 			const container = containerRef.current;
@@ -352,7 +353,7 @@ export function TaskInlineCreateCard({
 					// in-process Cline agent never receives per-task env, so it's hidden there.
 					<div className="flex items-center justify-between gap-2">
 						<span className="text-[12px] text-text-secondary">Environment variables</span>
-						<TaskEnvButton taskId={taskId} />
+						<TaskEnvButton taskId={taskId} onPopoverOpenChange={setIsEnvPopoverOpen} />
 					</div>
 				) : null}
 			</div>

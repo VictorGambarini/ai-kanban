@@ -34,6 +34,12 @@ interface TaskEnvButtonProps {
 	 * backlog cards (which simply apply env on their first start).
 	 */
 	onRequestRestart?: () => Promise<{ ok: boolean; message?: string }>;
+	/**
+	 * Notifies the host when the editor popover opens or closes. Hosts that close
+	 * themselves on outside clicks (e.g. the inline task editor's pointerdown guard)
+	 * use this to ignore clicks that land in the portaled popover.
+	 */
+	onPopoverOpenChange?: (open: boolean) => void;
 }
 
 function envMapsEqual(a: AgentEnvMap, b: AgentEnvMap): boolean {
@@ -53,7 +59,12 @@ function envMapsEqual(a: AgentEnvMap, b: AgentEnvMap): boolean {
  * env is already baked into the agent process, so saving prompts to restart the
  * agent CLI and applies the change on confirmation.
  */
-export function TaskEnvButton({ taskId, requiresRestartToApply, onRequestRestart }: TaskEnvButtonProps): ReactElement {
+export function TaskEnvButton({
+	taskId,
+	requiresRestartToApply,
+	onRequestRestart,
+	onPopoverOpenChange,
+}: TaskEnvButtonProps): ReactElement {
 	const [open, setOpen] = useState(false);
 	const [config, setConfig] = useState<AgentEnvConfig | null>(null);
 	const [rows, setRows] = useState<EnvRow[]>([]);
@@ -91,6 +102,12 @@ export function TaskEnvButton({ taskId, requiresRestartToApply, onRequestRestart
 			cancelled = true;
 		};
 	}, [open, taskId]);
+
+	// Mirror the popover (and the restart confirmation that keeps it mounted) up to
+	// the host so its own outside-click handling can ignore clicks in our portal.
+	useEffect(() => {
+		onPopoverOpenChange?.(open || confirmRestartOpen);
+	}, [open, confirmRestartOpen, onPopoverOpenChange]);
 
 	const taskVarCount = config ? Object.keys(config.tasks[taskId] ?? {}).length : 0;
 	const hasChanges = config ? !envMapsEqual(config.tasks[taskId] ?? {}, rowsToMap(rows)) : false;

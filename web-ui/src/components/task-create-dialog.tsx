@@ -1,7 +1,7 @@
 import * as RadixCheckbox from "@radix-ui/react-checkbox";
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
 import * as RadixSwitch from "@radix-ui/react-switch";
-
+import type { AgentEnvMap } from "@runtime-agent-env";
 import {
 	ArrowBigUp,
 	ArrowLeft,
@@ -19,6 +19,7 @@ import type { Dispatch, ReactElement, SetStateAction } from "react";
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import { useHotkeys } from "react-hotkeys-hook";
 
+import { TaskEnvDraftButton } from "@/components/agent-env/task-env-draft-button";
 import type { BranchSelectOption } from "@/components/branch-select-dropdown";
 import { BranchSelectDropdown } from "@/components/branch-select-dropdown";
 import { TaskAgentModelPicker, useTaskAgentModelPicker } from "@/components/task-agent-model-picker";
@@ -126,6 +127,8 @@ export function TaskCreateDialog({
 	onClineSettingsChange,
 	skillNames,
 	onSkillNamesChange,
+	env,
+	onEnvChange,
 	defaultAgentId,
 	defaultProviderId,
 	defaultModelId,
@@ -161,6 +164,9 @@ export function TaskCreateDialog({
 	onClineSettingsChange?: (value: RuntimeTaskClineSettings | undefined) => void;
 	skillNames?: string[];
 	onSkillNamesChange?: (value: string[]) => void;
+	/** Custom env collected for the new task; persisted once the task is created. */
+	env: AgentEnvMap;
+	onEnvChange: (value: AgentEnvMap) => void;
 	/** Default agent ID from runtimeConfig.selectedAgentId, used to show "Default (AgentName)" in picker */
 	defaultAgentId?: RuntimeAgentId | null;
 	/** Default Cline provider ID from runtimeConfig.clineProviderSettings.providerId */
@@ -609,6 +615,13 @@ export function TaskCreateDialog({
 							defaultReasoningEffort={defaultReasoningEffort}
 							providerDefaultModels={providerDefaultModels}
 						/>
+					) : null}
+					{mode === "single" && (agentId ?? defaultAgentId) !== "cline" ? (
+						// The in-process Cline agent never receives per-task env, so hide it there.
+						<div className="flex items-center justify-between gap-2">
+							<span className="text-[12px] text-text-secondary">Environment variables</span>
+							<TaskEnvDraftButton value={env} onChange={onEnvChange} />
+						</div>
 					) : null}
 				</div>
 			</DialogBody>
