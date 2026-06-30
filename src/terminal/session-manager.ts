@@ -460,12 +460,15 @@ export class TerminalSessionManager implements TerminalSessionService {
 					}
 					stopWorkspaceTrustTimers(currentActive);
 
-					const summary = this.applySessionEvent(currentEntry, {
+					this.applySessionEvent(currentEntry, {
 						type: "process.exit",
 						exitCode: event.exitCode,
 						interrupted: currentActive.session.wasInterrupted(),
 					});
+					// shouldAutoRestart may further patch the summary (e.g. set a warning when
+					// the crash-loop guard gives up), so read the latest after it runs.
 					const shouldAutoRestart = this.shouldAutoRestart(currentEntry);
+					const summary = currentEntry.summary;
 
 					for (const taskListener of currentEntry.listeners.values()) {
 						taskListener.onState?.(cloneSummary(summary));
@@ -1045,6 +1048,12 @@ export class TerminalSessionManager implements TerminalSessionService {
 			(timestamp) => currentTime - timestamp < AUTO_RESTART_WINDOW_MS,
 		);
 		if (entry.autoRestartTimestamps.length >= MAX_AUTO_RESTARTS_PER_WINDOW) {
+			// The crash-loop guard is giving up. Surface it instead of failing silently so
+			// the UI can flag a crashed agent and offer a manual restart. A successful
+			// (re)start clears warningMessage via the running-state patch.
+			updateSummary(entry, {
+				warningMessage: "Agent stopped after restarting too many times. Use Restart agent to try again.",
+			});
 			return false;
 		}
 		entry.autoRestartTimestamps.push(currentTime);

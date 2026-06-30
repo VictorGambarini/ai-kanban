@@ -1264,11 +1264,21 @@ export const runtimeTerminalWsRestoreMessageSchema = z.object({
 });
 export type RuntimeTerminalWsRestoreMessage = z.infer<typeof runtimeTerminalWsRestoreMessageSchema>;
 
+// Application-level keepalive pushed on the control socket. The browser WebSocket
+// API cannot send native pings or observe server silence, so the client uses the
+// arrival of these frames to detect a half-open pipe (e.g. after a laptop sleep or
+// network change) and trigger a reconnect when they stop arriving.
+export const runtimeTerminalWsHeartbeatMessageSchema = z.object({
+	type: z.literal("heartbeat"),
+});
+export type RuntimeTerminalWsHeartbeatMessage = z.infer<typeof runtimeTerminalWsHeartbeatMessageSchema>;
+
 export const runtimeTerminalWsServerMessageSchema = z.discriminatedUnion("type", [
 	runtimeTerminalWsStateMessageSchema,
 	runtimeTerminalWsErrorMessageSchema,
 	runtimeTerminalWsExitMessageSchema,
 	runtimeTerminalWsRestoreMessageSchema,
+	runtimeTerminalWsHeartbeatMessageSchema,
 ]);
 export type RuntimeTerminalWsServerMessage = z.infer<typeof runtimeTerminalWsServerMessageSchema>;
 

@@ -73,6 +73,15 @@ interface TerminalStreamState {
 	detachOutputListener: (() => void) | null;
 }
 
+// Liveness: the server pings every socket on this cadence and terminates any that
+// did not answer the previous ping, reaping half-open viewer sockets so PTY
+// listener counts stay accurate. On the same cadence it pushes an app-level
+// heartbeat frame on each control socket, which is the only signal the browser can
+// use to notice a dead pipe (the WebSocket API exposes neither native pings nor
+// server silence).
+const WS_HEARTBEAT_INTERVAL_MS = 10_000;
+type LivenessWebSocket = WebSocket & { isAlive?: boolean };
+
 const OUTPUT_BATCH_INTERVAL_MS = 4;
 const LOW_LATENCY_CHUNK_BYTES = 256;
 const LOW_LATENCY_IDLE_WINDOW_MS = 5;
@@ -144,6 +153,45 @@ export function createTerminalWebSocketBridge({
 
 	const ioServer = new WebSocketServer({ noServer: true });
 	const controlServer = new WebSocketServer({ noServer: true });
+
+	const trackSocketLiveness = (ws: WebSocket): void => {
+		const livenessSocket = ws as LivenessWebSocket;
+		livenessSocket.isAlive = true;
+		ws.on("pong", () => {
+			livenessSocket.isAlive = true;
+		});
+	};
+
+	const heartbeatTimer = setInterval(() => {
+		for (const client of ioServer.clients) {
+			const livenessSocket = client as LivenessWebSocket;
+			if (livenessSocket.isAlive === false) {
+				client.terminate();
+				continue;
+			}
+			livenessSocket.isAlive = false;
+			try {
+				client.ping();
+			} catch {
+				// Ignore ping failures; a failing socket is terminated on the next tick.
+			}
+		}
+		for (const client of controlServer.clients) {
+			const livenessSocket = client as LivenessWebSocket;
+			if (livenessSocket.isAlive === false) {
+				client.terminate();
+				continue;
+			}
+			livenessSocket.isAlive = false;
+			try {
+				client.ping();
+			} catch {
+				// Ignore ping failures; a failing socket is terminated on the next tick.
+			}
+			sendControlMessage(client, { type: "heartbeat" });
+		}
+	}, WS_HEARTBEAT_INTERVAL_MS);
+	heartbeatTimer.unref?.();
 
 	const getOrCreateTerminalStreamState = (connectionKey: string): TerminalStreamState => {
 		const existing = terminalStreamStates.get(connectionKey);
@@ -431,6 +479,7 @@ export function createTerminalWebSocketBridge({
 		const clientId = (context as TerminalWebSocketConnectionContext).clientId;
 		const terminalManager = (context as TerminalWebSocketConnectionContext).terminalManager;
 		const connectionKey = buildConnectionKey(workspaceId, taskId);
+		trackSocketLiveness(ws);
 		terminalManager.recoverStaleSession(taskId);
 		const streamState = getOrCreateTerminalStreamState(connectionKey);
 		const viewerState = getOrCreateViewerState(streamState, clientId);
@@ -473,6 +522,7 @@ export function createTerminalWebSocketBridge({
 		const clientId = (context as TerminalWebSocketConnectionContext).clientId;
 		const terminalManager = (context as TerminalWebSocketConnectionContext).terminalManager;
 		const connectionKey = buildConnectionKey(workspaceId, taskId);
+		trackSocketLiveness(ws);
 		terminalManager.recoverStaleSession(taskId);
 		const streamState = getOrCreateTerminalStreamState(connectionKey);
 		const viewerState = getOrCreateViewerState(streamState, clientId);
@@ -563,6 +613,7 @@ export function createTerminalWebSocketBridge({
 
 	return {
 		close: async () => {
+			clearInterval(heartbeatTimer);
 			for (const client of ioServer.clients) {
 				try {
 					client.terminate();
