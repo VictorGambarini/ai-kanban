@@ -13,6 +13,7 @@ import { Spinner } from "@/components/ui/spinner";
 import { Tooltip } from "@/components/ui/tooltip";
 import { getRuntimeTrpcClient } from "@/runtime/trpc-client";
 import type { RuntimeWorkspaceSkill } from "@/runtime/types";
+import { useWorkspaceSkills } from "@/runtime/workspace-skills-cache";
 
 interface WorkspaceSkillsPanelProps {
 	workspaceId: string | null;
@@ -132,30 +133,14 @@ function CreateSkillDialog({
 }
 
 export function WorkspaceSkillsPanel({ workspaceId }: WorkspaceSkillsPanelProps): ReactElement {
-	const [skills, setSkills] = useState<RuntimeWorkspaceSkill[]>([]);
-	const [isLoading, setIsLoading] = useState(false);
 	const [installSource, setInstallSource] = useState("");
 	const [isInstalling, setIsInstalling] = useState(false);
 	const [installChoice, setInstallChoice] = useState<{ repo: string; skill: string } | null>(null);
 	const [isCreateDialogOpen, setIsCreateDialogOpen] = useState(false);
 
-	const loadSkills = useCallback(async () => {
-		if (!workspaceId) return;
-		setIsLoading(true);
-		try {
-			const trpc = getRuntimeTrpcClient(workspaceId);
-			const result = await trpc.workspace.skillsList.query();
-			setSkills(result);
-		} catch {
-			setSkills([]);
-		} finally {
-			setIsLoading(false);
-		}
-	}, [workspaceId]);
-
-	useEffect(() => {
-		void loadSkills();
-	}, [loadSkills]);
+	// Backed by the shared workspace-skills cache so the per-task picker reflects installs,
+	// toggles, and removals made here (and vice versa) without a stale re-fetch.
+	const { skills, isLoading, setSkills, refetch: loadSkills } = useWorkspaceSkills(workspaceId);
 
 	// Optimistic so the UI feels instant: the `skills list` CLI is slow (1-2s), so we
 	// update local state immediately and reconcile only on failure.

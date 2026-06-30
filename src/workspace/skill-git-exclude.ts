@@ -19,6 +19,7 @@ const SKILL_EXCLUDE_PATTERNS = [
 	"/.cline/skills/",
 	"/.clinerules/skills/",
 	"/CLAUDE.local.md",
+	"/skills-lock.json",
 ];
 
 /**

@@ -31,15 +31,19 @@ Two facts drive most of the design:
 
 | Field          | Source                                                          |
 | -------------- | -------------------------------------------------------------- |
-| `name`         | skill directory name (from `npx skills list --json`)           |
+| `name`         | `SKILL.md` frontmatter `name` (sanitized)                      |
 | `description`  | `SKILL.md` frontmatter                                          |
 | `disabled`     | `SKILL.md` frontmatter (`disabled: true`)                       |
 | `dirPath`      | absolute path on disk                                           |
-| `installedFrom`| `SKILL.md` frontmatter — the source slug, e.g. `anthropics/skills` |
+| `installedFrom`| `skills-lock.json` source for the skill (legacy `SKILL.md` frontmatter as fallback) |
 | `installedAt`  | `SKILL.md` frontmatter — ISO timestamp stamped at install time |
 
-`installedFrom`/`installedAt` are Kanban-managed frontmatter fields (the same channel the
-codebase already uses for `disabled`). They power source grouping and the "NEW" badge.
+`installedFrom` powers source grouping; `installedAt` powers the "NEW" badge. The source is
+**read from the `skills` CLI's own `skills-lock.json`** (keyed by skill name, written
+additively on every install) rather than re-derived — this is the tool's source of truth, so
+installing a second collection can no longer overwrite the first's grouping. `installedAt` is
+still a Kanban-stamped frontmatter field (the same channel as `disabled`), applied only to the
+just-installed source's skills that lack one.
 
 ## Install flow
 
@@ -50,17 +54,24 @@ codebase already uses for `disabled`). They power source grouping and the "NEW" 
    a skills.sh URL (`https://www.skills.sh/owner/repo[/skill]`), a GitHub URL, or a bare
    `owner/repo` slug into `{ repo, skill? }`. A skill named in the URL becomes a `--skill`
    filter unless the caller passed explicit `skillNames`.
-2. Snapshot existing skill names, run `npx skills add <repo> --agent claude-code --agent
-   cline --copy --yes -p [--skill …]`.
-3. Stamp `installedFrom`/`installedAt` onto the newly-appeared skills
-   (`stampInstallMetadata`).
+2. Run `npx skills add <repo> --agent claude-code --agent cline --copy --yes -p [--skill …]`.
+   The CLI records each installed skill's source in `skills-lock.json`.
+3. Stamp `installedAt` onto skills the lock attributes to this `repo` that don't have one
+   yet (`stampInstallTimestamps`). Grouping (`installedFrom`) comes from the lock, so nothing
+   is stamped for it and other sources' skills are never touched.
 4. Call `ensureSkillGitExcludes(workspacePath)` so the freshly-written skill files don't
    show up as project changes (see [Diff hygiene](#diff-hygiene)).
 
-`listSkills` reads both project (`-p`) and global (`-g`) scopes via the CLI and merges
-frontmatter metadata. `createSkill`, `removeSkill`, and `setSkillDisabled` round out the
-CRUD surface. All of this is exposed over tRPC as `workspace.skills{List,Install,Create,
-Remove,SetDisabled}` (`src/trpc/app-router.ts` → `src/trpc/workspace-api.ts`).
+`listSkills` reads skill directories **directly from disk** — the project's `.agents/skills`
+and `.claude/skills` plus the user's global `~/.claude/skills`, `~/.config/claude/skills`, and
+`~/.agents/skills` — parsing each `SKILL.md` the same way the CLI does (a listable skill needs
+a non-empty `name` and `description`; `metadata.internal` skills are hidden), deduping by name
+with project scope winning. This avoids the slow `npx skills list` cold-start on a hot path. A
+short-lived (3s) in-memory cache, invalidated by every mutation below, coalesces the picker
+and Settings panel both listing at once. `createSkill`, `removeSkill`, and `setSkillDisabled`
+round out the CRUD surface (these still shell out to the CLI / write files). All of this is
+exposed over tRPC as `workspace.skills{List,Install,Create,Remove,SetDisabled}`
+(`src/trpc/app-router.ts` → `src/trpc/workspace-api.ts`).
 
 ## UI
 
@@ -68,7 +79,12 @@ Remove,SetDisabled}` (`src/trpc/app-router.ts` → `src/trpc/workspace-api.ts`).
   rendered by `web-ui/src/components/workspace-skills-panel.tsx`. Skills are shown in
   collapsible groups keyed by `installedFrom`, each with a group-level enable/disable
   toggle; recently-installed skills get a "NEW" badge (48h window). Toggling and deleting
-  are **optimistic** because the underlying `skills list` CLI is slow (1–2s).
+  are **optimistic**.
+- Both the Settings panel and the per-task picker read the list through a shared
+  stale-while-revalidate cache (`web-ui/src/runtime/workspace-skills-cache.ts`): the result
+  is cached per workspace, reused across mounts, prefetched on board load (`App.tsx`), and
+  invalidated by mutations — so re-opening "Override Agent Settings" is instant instead of
+  re-fetching each time.
 - **Per-task selection** lives in the task's Advanced tab
   (`web-ui/src/components/task-agent-model-picker.tsx`): the same source groups, a
   per-group select-all toggle, and only *enabled* skills are offered.
@@ -127,8 +143,8 @@ Injected and installed skill files are untracked, and Kanban's "changed files" v
 `git status --untracked-files=all`, so without intervention they show up as large diffs.
 `ensureSkillGitExcludes(repoPath)` (`src/workspace/skill-git-exclude.ts`) adds a managed
 block to the repo's `.git/info/exclude` covering `.agents/skills/`, `.claude/skills/`,
-`.claude/settings.local.json`, `.cline/skills/`, `.clinerules/skills/`, and
-`CLAUDE.local.md`. It is called at both install time (workspace) and injection time.
+`.claude/settings.local.json`, `.cline/skills/`, `.clinerules/skills/`, `CLAUDE.local.md`,
+and `skills-lock.json`. It is called at both install time (workspace) and injection time.
 
 Two properties make this safe and broad:
 
@@ -150,11 +166,13 @@ Two properties make this safe and broad:
 | tRPC surface                    | `src/trpc/app-router.ts`, `src/trpc/workspace-api.ts` |
 | Settings UI                     | `web-ui/src/components/workspace-skills-panel.tsx`    |
 | Per-task picker UI              | `web-ui/src/components/task-agent-model-picker.tsx`   |
+| Shared client cache + prefetch  | `web-ui/src/runtime/workspace-skills-cache.ts`        |
 | Shared UI helpers               | `web-ui/src/components/skills/`                        |
 
 ## Known limitations (summary)
 
 - Claude marketplace **plugin** skills cannot be hidden per-run.
 - Cline shows the user's **global** skills in addition to the selected ones.
-- `skills list` is slow; the Settings panel hides this with optimistic updates, but a
-  fresh load still pays the CLI cost.
+- Listing reads from disk and is cached, so it no longer pays the `npx skills list`
+  cold-start. The trade-off: skill installs/edits made **outside** Kanban (or directly via
+  the CLI) only show up after a Kanban mutation or once the 3s server cache expires.

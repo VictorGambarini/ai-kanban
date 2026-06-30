@@ -68,6 +68,7 @@ import type { RuntimeClineReasoningEffort, RuntimeTaskSessionSummary } from "@/r
 import { useRuntimeProjectConfig } from "@/runtime/use-runtime-project-config";
 import { useTerminalConnectionReady } from "@/runtime/use-terminal-connection-ready";
 import { useWorkspacePersistence } from "@/runtime/use-workspace-persistence";
+import { prefetchWorkspaceSkills } from "@/runtime/workspace-skills-cache";
 import { saveWorkspaceState } from "@/runtime/workspace-state-query";
 import {
 	applyTaskDetailClineSettingsChange,
@@ -131,6 +132,11 @@ export default function App(): ReactElement {
 		onProjectSwitchStart: handleProjectSwitchStart,
 	});
 	const activeNotificationWorkspaceId = navigationCurrentProjectId;
+	// Warm the shared skill list as soon as a project is active, so the first time a card's
+	// "Override Agent Settings" is opened the skills render instantly.
+	useEffect(() => {
+		prefetchWorkspaceSkills(currentProjectId);
+	}, [currentProjectId]);
 	const isDocumentVisible = useDocumentVisibility();
 	const isInitialRuntimeLoad =
 		!hasReceivedSnapshot && currentProjectId === null && projects.length === 0 && !streamError;
