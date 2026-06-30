@@ -313,6 +313,8 @@ export default function App(): ReactElement {
 		setNewTaskClineSettings,
 		newTaskSkillNames,
 		setNewTaskSkillNames,
+		newTaskEnv,
+		setNewTaskEnv,
 		editingTaskId,
 		editTaskPrompt,
 		setEditTaskPrompt,
@@ -1169,6 +1171,8 @@ export default function App(): ReactElement {
 					onClineSettingsChange={setNewTaskClineSettings}
 					skillNames={newTaskSkillNames}
 					onSkillNamesChange={setNewTaskSkillNames}
+					env={newTaskEnv}
+					onEnvChange={setNewTaskEnv}
 					defaultAgentId={runtimeProjectConfig?.selectedAgentId ?? null}
 					defaultProviderId={defaultTaskClineProviderId}
 					defaultModelId={runtimeProjectConfig?.clineProviderSettings?.modelId ?? null}
