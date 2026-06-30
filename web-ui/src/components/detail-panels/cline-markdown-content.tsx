@@ -163,11 +163,7 @@ const markdownComponents: Components = {
 	code: MarkdownCode,
 };
 
-export const ClineMarkdownContent = memo(function ClineMarkdownContent({
-	content,
-}: {
-	content: string;
-}): ReactElement {
+export const ClineMarkdownContent = memo(function ClineMarkdownContent({ content }: { content: string }): ReactElement {
 	if (!content.trim()) {
 		return <span className="text-text-secondary" />;
 	}
