@@ -3,6 +3,7 @@ import { Files, GitCompareArrows, Maximize2, MessageSquare, Minimize2, X } from 
 import type { MouseEvent as ReactMouseEvent, ReactNode } from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useHotkeys } from "react-hotkeys-hook";
+import { TaskEnvButton } from "@/components/agent-env/task-env-button";
 import { AgentTerminalPanel } from "@/components/detail-panels/agent-terminal-panel";
 import { ClineAgentChatPanel, type ClineAgentChatPanelHandle } from "@/components/detail-panels/cline-agent-chat-panel";
 import { ColumnContextPanel } from "@/components/detail-panels/column-context-panel";
@@ -707,22 +708,24 @@ export function CardDetailView({
 	// Let users add/remove skills on a ticket that's already running or in review. The
 	// editor's skill picker only covers backlog tickets, so this is the equivalent for
 	// started ones — it syncs the worktree files live (see TaskSkillsButton).
-	const showTaskSkillsControl =
-		(selection.column.id === "in_progress" || selection.column.id === "review") &&
-		!!currentProjectId &&
-		!!onTaskSkillsChanged;
+	const isStartedColumn = selection.column.id === "in_progress" || selection.column.id === "review";
+	const showTaskSkillsControl = isStartedColumn && !!currentProjectId && !!onTaskSkillsChanged;
+	const showTaskControlBar = showTaskSkillsControl || isStartedColumn;
 	const agentArea = (
 		<div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
-			{showTaskSkillsControl ? (
+			{showTaskControlBar ? (
 				<div className="flex items-center justify-end gap-2 border-b border-border bg-surface-1 px-2 py-1">
-					<TaskSkillsButton
-						workspaceId={currentProjectId}
-						taskId={selection.card.id}
-						baseRef={selection.card.baseRef}
-						agentId={selection.card.agentId}
-						selectedSkillNames={selection.card.skillNames ?? []}
-						onPersist={(skillNames) => onTaskSkillsChanged?.(selection.card.id, skillNames)}
-					/>
+					<TaskEnvButton taskId={selection.card.id} />
+					{showTaskSkillsControl ? (
+						<TaskSkillsButton
+							workspaceId={currentProjectId}
+							taskId={selection.card.id}
+							baseRef={selection.card.baseRef}
+							agentId={selection.card.agentId}
+							selectedSkillNames={selection.card.skillNames ?? []}
+							onPersist={(skillNames) => onTaskSkillsChanged?.(selection.card.id, skillNames)}
+						/>
+					) : null}
 				</div>
 			) : null}
 			{agentChatPanel}

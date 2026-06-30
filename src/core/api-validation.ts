@@ -1,6 +1,7 @@
 import { z } from "zod";
 
 import {
+	type RuntimeAgentEnvSaveRequest,
 	type RuntimeClineAccountSwitchRequest,
 	type RuntimeClineAddProviderRequest,
 	type RuntimeClineDeviceAuthCompleteRequest,
@@ -34,6 +35,7 @@ import {
 	type RuntimeWorkspaceStateSaveRequest,
 	type RuntimeWorktreeDeleteRequest,
 	type RuntimeWorktreeEnsureRequest,
+	runtimeAgentEnvSaveRequestSchema,
 	runtimeClineAccountSwitchRequestSchema,
 	runtimeClineAddProviderRequestSchema,
 	runtimeClineDeviceAuthCompleteRequestSchema,
@@ -207,6 +209,10 @@ export function parseProjectRemoveRequest(value: unknown): RuntimeProjectRemoveR
 
 export function parseRuntimeConfigSaveRequest(value: unknown): RuntimeConfigSaveRequest {
 	return parseWithSchema(runtimeConfigSaveRequestSchema, value);
+}
+
+export function parseAgentEnvSaveRequest(value: unknown): RuntimeAgentEnvSaveRequest {
+	return parseWithSchema(runtimeAgentEnvSaveRequestSchema, value);
 }
 
 export function parseCommandRunRequest(value: unknown): RuntimeCommandRunRequest {

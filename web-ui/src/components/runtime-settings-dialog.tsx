@@ -17,6 +17,7 @@ import {
 	ExternalLink,
 	FolderOpen,
 	GitCommit,
+	KeyRound,
 	Palette,
 	Plus,
 	Settings,
@@ -25,6 +26,7 @@ import {
 	X,
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { AgentEnvSettingsSection } from "@/components/agent-env/agent-env-settings-section";
 import { AccountOrganizationSection } from "@/components/shared/account-organization-section";
 import { ClineSetupSection } from "@/components/shared/cline-setup-section";
 import {
@@ -104,7 +106,15 @@ export type RuntimeSettingsSection = "shortcuts";
 
 const SETTINGS_AGENT_ORDER: readonly RuntimeAgentId[] = ["cline", "claude", "codex", "droid", "kiro"];
 
-type SettingsNavId = "general" | "cline" | "git-prompts" | "notifications" | "appearance" | "project" | "skills";
+type SettingsNavId =
+	| "general"
+	| "cline"
+	| "git-prompts"
+	| "environment"
+	| "notifications"
+	| "appearance"
+	| "project"
+	| "skills";
 
 const SETTINGS_NAV_ITEMS: ReadonlyArray<{
 	id: SettingsNavId;
@@ -115,6 +125,7 @@ const SETTINGS_NAV_ITEMS: ReadonlyArray<{
 	{ id: "general", label: "General", icon: <SlidersHorizontal size={16} /> },
 	{ id: "cline", label: "Cline", icon: <Bot size={16} />, clineOnly: true },
 	{ id: "git-prompts", label: "Git Prompts", icon: <GitCommit size={16} /> },
+	{ id: "environment", label: "Environment", icon: <KeyRound size={16} /> },
 	{ id: "notifications", label: "Notifications", icon: <Bell size={16} /> },
 	{ id: "appearance", label: "Appearance", icon: <Palette size={16} /> },
 	{ id: "project", label: "Project", icon: <FolderOpen size={16} /> },
@@ -937,6 +948,9 @@ export function RuntimeSettingsDialog({
 							to reference {TASK_GIT_BASE_REF_PROMPT_VARIABLE.description}
 						</p>
 					</div>
+
+					{/* ---- Environment ---- */}
+					<AgentEnvSettingsSection open={open} workspaceId={workspaceId} />
 
 					{/* ---- Notifications ---- */}
 					<div data-settings-section="notifications" />

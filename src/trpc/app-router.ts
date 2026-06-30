@@ -5,6 +5,8 @@ import type { inferRouterInputs, inferRouterOutputs } from "@trpc/server";
 import { initTRPC, TRPCError } from "@trpc/server";
 import { z } from "zod";
 import type {
+	RuntimeAgentEnvConfigResponse,
+	RuntimeAgentEnvSaveRequest,
 	RuntimeClineAccountBalanceResponse,
 	RuntimeClineAccountOrganizationsResponse,
 	RuntimeClineAccountProfileResponse,
@@ -99,6 +101,8 @@ import type {
 	RuntimeWorktreeEnsureResponse,
 } from "../core/api-contract";
 import {
+	runtimeAgentEnvConfigResponseSchema,
+	runtimeAgentEnvSaveRequestSchema,
 	runtimeClineAccountBalanceResponseSchema,
 	runtimeClineAccountOrganizationsResponseSchema,
 	runtimeClineAccountProfileResponseSchema,
@@ -216,6 +220,11 @@ export interface RuntimeTrpcContext {
 			scope: RuntimeTrpcWorkspaceScope | null,
 			input: RuntimeConfigSaveRequest,
 		) => Promise<RuntimeConfigResponse>;
+		getAgentEnv: () => Promise<RuntimeAgentEnvConfigResponse>;
+		saveAgentEnv: (
+			scope: RuntimeTrpcWorkspaceScope | null,
+			input: RuntimeAgentEnvSaveRequest,
+		) => Promise<RuntimeAgentEnvConfigResponse>;
 		saveClineProviderSettings: (
 			scope: RuntimeTrpcWorkspaceScope | null,
 			input: RuntimeClineProviderSettingsSaveRequest,
@@ -477,6 +486,17 @@ export const runtimeAppRouter = t.router({
 			.output(runtimeConfigResponseSchema)
 			.mutation(async ({ ctx, input }) => {
 				return await ctx.runtimeApi.saveConfig(ctx.workspaceScope, input);
+			}),
+		// Hub-central custom agent env. The web-ui calls these via the hub-scoped
+		// client so the same env config backs both local and remote tasks.
+		getAgentEnv: t.procedure.output(runtimeAgentEnvConfigResponseSchema).query(async ({ ctx }) => {
+			return await ctx.runtimeApi.getAgentEnv();
+		}),
+		saveAgentEnv: t.procedure
+			.input(runtimeAgentEnvSaveRequestSchema)
+			.output(runtimeAgentEnvConfigResponseSchema)
+			.mutation(async ({ ctx, input }) => {
+				return await ctx.runtimeApi.saveAgentEnv(ctx.workspaceScope, input);
 			}),
 		saveClineProviderSettings: t.procedure
 			.input(runtimeClineProviderSettingsSaveRequestSchema)

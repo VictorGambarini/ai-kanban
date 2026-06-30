@@ -1,8 +1,10 @@
 // Browser-side query helpers for runtime settings and Cline actions.
 // Keep TRPC request details here so components and controller hooks can focus
 // on state orchestration instead of transport plumbing.
-import { getRuntimeTrpcClient } from "@/runtime/trpc-client";
+import { getHubTrpcClient, getRuntimeTrpcClient } from "@/runtime/trpc-client";
 import type {
+	RuntimeAgentEnvConfigResponse,
+	RuntimeAgentEnvSaveRequest,
 	RuntimeAgentId,
 	RuntimeClineAccountBalanceResponse,
 	RuntimeClineAccountOrganizationsResponse,
@@ -54,6 +56,17 @@ export async function saveRuntimeConfig(
 ): Promise<RuntimeConfigResponse> {
 	const trpcClient = getRuntimeTrpcClient(workspaceId);
 	return await trpcClient.runtime.saveConfig.mutate(nextConfig);
+}
+
+// Agent env is hub-central: always read/write via the hub client (never the
+// active-host client) so the same config backs local and remote tasks. The
+// effective set is resolved on the hub and shipped in the task-start request.
+export async function fetchAgentEnvConfig(): Promise<RuntimeAgentEnvConfigResponse> {
+	return await getHubTrpcClient().runtime.getAgentEnv.query();
+}
+
+export async function saveAgentEnvConfig(config: RuntimeAgentEnvSaveRequest): Promise<RuntimeAgentEnvConfigResponse> {
+	return await getHubTrpcClient().runtime.saveAgentEnv.mutate(config);
 }
 
 export async function saveClineProviderSettings(

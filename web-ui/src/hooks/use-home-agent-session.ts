@@ -8,6 +8,7 @@ import type { Dispatch, SetStateAction } from "react";
 import { useEffect, useMemo, useRef } from "react";
 
 import { notifyError } from "@/components/app-toaster";
+import { resolveLaunchAgentEnv } from "@/runtime/agent-env-launch";
 import { getRuntimeClineProviderSettings, isNativeClineAgentSelected } from "@/runtime/native-agent";
 import { estimateTaskSessionGeometry } from "@/runtime/task-session-geometry";
 import { getRuntimeTrpcClient } from "@/runtime/trpc-client";
@@ -314,12 +315,17 @@ export function useHomeAgentSession({
 			try {
 				const geometry = estimateTaskSessionGeometry(window.innerWidth, window.innerHeight);
 				const trpcClient = getRuntimeTrpcClient(session.workspaceId);
+				const env = await resolveLaunchAgentEnv({
+					projectId: session.workspaceId,
+					taskId: session.taskId,
+				});
 				const response = await trpcClient.runtime.startTaskSession.mutate({
 					taskId: session.taskId,
 					prompt: "",
 					baseRef: latestBaseRefRef.current,
 					cols: geometry.cols,
 					rows: geometry.rows,
+					env,
 				});
 
 				if (!response.ok || !response.summary) {

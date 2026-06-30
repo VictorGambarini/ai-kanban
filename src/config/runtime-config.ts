@@ -1,10 +1,11 @@
 // Persists Kanban-owned runtime preferences on disk.
 // This module should store Kanban settings such as selected agents,
 // shortcuts, and prompt templates, not SDK-owned Cline secrets or OAuth data.
-import { readFile, rm } from "node:fs/promises";
+import { chmod, readFile, rm } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { getRuntimeAgentCatalogEntry, isRuntimeAgentLaunchSupported } from "../core/agent-catalog";
+import { type AgentEnvConfig, isAgentEnvConfigEmpty, normalizeAgentEnvConfig } from "../core/agent-env";
 import type { RuntimeAgentId, RuntimeProjectShortcut } from "../core/api-contract";
 import { type LockRequest, lockedFileSystem } from "../fs/locked-file-system";
 import { detectInstalledCommands } from "../terminal/agent-registry";
@@ -17,6 +18,13 @@ interface RuntimeGlobalConfigFileShape {
 	readyForReviewNotificationsEnabled?: boolean;
 	commitPromptTemplate?: string;
 	openPrPromptTemplate?: string;
+	/**
+	 * Hub-central custom env vars injected into agent task sessions. Stored only
+	 * in the GLOBAL config (never the per-project file) so the effective set is
+	 * resolved on the hub and works identically for local and remote tasks. May
+	 * contain secrets, so the global config file is chmod 600 on write.
+	 */
+	agentEnv?: AgentEnvConfig;
 }
 
 interface RuntimeProjectConfigFileShape {
@@ -375,9 +383,33 @@ async function writeRuntimeGlobalConfigFile(
 		payload.openPrPromptTemplate = openPrPromptTemplate;
 	}
 
+	// Preserve agent env across unrelated config writes — these writers rebuild
+	// the file from known fields, so without this an env-unaware save (e.g.
+	// changing the selected agent) would silently drop the user's env config.
+	const existingAgentEnv = normalizeAgentEnvConfig(existing?.agentEnv);
+	if (!isAgentEnvConfigEmpty(existingAgentEnv)) {
+		payload.agentEnv = existingAgentEnv;
+	}
+
 	await lockedFileSystem.writeJsonFileAtomic(configPath, payload, {
 		lock: null,
 	});
+	await restrictConfigFilePermissions(configPath);
+}
+
+/**
+ * Tighten the global config file to owner-only (0600) since it can hold secret
+ * env values. Best-effort: POSIX only, and failures are non-fatal.
+ */
+async function restrictConfigFilePermissions(configPath: string): Promise<void> {
+	if (process.platform === "win32") {
+		return;
+	}
+	try {
+		await chmod(configPath, 0o600);
+	} catch {
+		// Permissions hardening is best-effort; never block a config write on it.
+	}
 }
 
 async function writeRuntimeProjectConfigFile(
@@ -512,6 +544,39 @@ export async function loadGlobalRuntimeConfig(): Promise<RuntimeConfigState> {
 		getRuntimeConfigLockRequests(null),
 		async () => await loadRuntimeConfigLocked(null),
 	);
+}
+
+/**
+ * Read the hub-central agent env config from the global config file. Always
+ * targets the hub's own config (callers reach this via the hub-scoped client),
+ * so the same env set is resolved regardless of which host runs the task.
+ */
+export async function loadAgentEnvConfig(): Promise<AgentEnvConfig> {
+	const configPath = getRuntimeGlobalConfigPath();
+	const existing = await readRuntimeConfigFile<RuntimeGlobalConfigFileShape>(configPath);
+	return normalizeAgentEnvConfig(existing?.agentEnv);
+}
+
+/**
+ * Persist the hub-central agent env config, preserving every other field in the
+ * global config file. Writes are atomic + locked and the file is re-restricted
+ * to 0600 afterward since it can hold secrets.
+ */
+export async function saveAgentEnvConfig(config: AgentEnvConfig): Promise<AgentEnvConfig> {
+	const configPath = getRuntimeGlobalConfigPath();
+	const normalized = normalizeAgentEnvConfig(config);
+	return await lockedFileSystem.withLocks([{ path: configPath, type: "file" }], async () => {
+		const existing = (await readRuntimeConfigFile<RuntimeGlobalConfigFileShape>(configPath)) ?? {};
+		const payload: RuntimeGlobalConfigFileShape = { ...existing };
+		if (isAgentEnvConfigEmpty(normalized)) {
+			delete payload.agentEnv;
+		} else {
+			payload.agentEnv = normalized;
+		}
+		await lockedFileSystem.writeJsonFileAtomic(configPath, payload, { lock: null });
+		await restrictConfigFilePermissions(configPath);
+		return normalized;
+	});
 }
 
 export async function saveRuntimeConfig(

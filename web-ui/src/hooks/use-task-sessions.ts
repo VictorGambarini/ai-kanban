@@ -7,6 +7,7 @@ import { useCallback } from "react";
 import { notifyError } from "@/components/app-toaster";
 import { selectNewestTaskSessionSummary } from "@/hooks/home-sidebar-agent-panel-session-summary";
 import { type ClineChatActionResult, useClineChatRuntimeActions } from "@/hooks/use-cline-chat-runtime-actions";
+import { resolveLaunchAgentEnv } from "@/runtime/agent-env-launch";
 import { estimateTaskSessionGeometry } from "@/runtime/task-session-geometry";
 import { getRuntimeTrpcClient } from "@/runtime/trpc-client";
 import type {
@@ -154,6 +155,7 @@ export function useTaskSessions({ currentProjectId, setSessions }: UseTaskSessio
 				const trpcClient = getRuntimeTrpcClient(currentProjectId);
 				const geometry =
 					getTerminalGeometry(task.id) ?? estimateTaskSessionGeometry(window.innerWidth, window.innerHeight);
+				const env = await resolveLaunchAgentEnv({ projectId: currentProjectId, taskId: task.id });
 				const payload = await trpcClient.runtime.startTaskSession.mutate({
 					taskId: task.id,
 					prompt: kickoffPrompt,
@@ -168,6 +170,7 @@ export function useTaskSessions({ currentProjectId, setSessions }: UseTaskSessio
 					cliModel: task.cliModel,
 					clineSettings: task.clineSettings,
 					skillNames: task.skillNames,
+					env,
 				});
 				if (!payload.ok || !payload.summary) {
 					return {

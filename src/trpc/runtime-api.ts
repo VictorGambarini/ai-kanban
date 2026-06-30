@@ -13,13 +13,20 @@ import { createClineProviderService } from "../cline-sdk/cline-provider-service"
 import { isClineClearSlashCommand } from "../cline-sdk/cline-slash-commands";
 import type { ClineTaskSessionService } from "../cline-sdk/cline-task-session-service";
 import type { RuntimeConfigState } from "../config/runtime-config";
-import { updateGlobalRuntimeConfig, updateRuntimeConfig } from "../config/runtime-config";
+import {
+	loadAgentEnvConfig,
+	saveAgentEnvConfig,
+	updateGlobalRuntimeConfig,
+	updateRuntimeConfig,
+} from "../config/runtime-config";
+import { normalizeAgentEnvMap } from "../core/agent-env";
 import type {
 	RuntimeCommandRunResponse,
 	RuntimeRunUpdateResponse,
 	RuntimeUpdateStatusResponse,
 } from "../core/api-contract";
 import {
+	parseAgentEnvSaveRequest,
 	parseClineAccountSwitchRequest,
 	parseClineAddProviderRequest,
 	parseClineDeviceAuthCompleteRequest,
@@ -148,6 +155,13 @@ export function createRuntimeApi(deps: CreateRuntimeApiDependencies): RuntimeTrp
 				deps.setActiveRuntimeConfig(nextRuntimeConfig);
 			}
 			return buildConfigResponse(nextRuntimeConfig);
+		},
+		getAgentEnv: async () => {
+			return await loadAgentEnvConfig();
+		},
+		saveAgentEnv: async (_workspaceScope, input) => {
+			const body = parseAgentEnvSaveRequest(input);
+			return await saveAgentEnvConfig(body);
 		},
 		saveClineProviderSettings: async (_workspaceScope, input) => {
 			const body = parseClineProviderSettingsSaveRequest(input);
@@ -335,6 +349,11 @@ export function createRuntimeApi(deps: CreateRuntimeApiDependencies): RuntimeTrp
 					resumeFromTrash: body.resumeFromTrash,
 					cols: body.cols,
 					rows: body.rows,
+					// Hub-resolved custom env (global/project/task) applied to the agent
+					// process. The set arrives in the request body so it reaches the
+					// spawning runtime identically for local and proxied remote tasks.
+					// Re-normalized here so the runtime never trusts arbitrary keys.
+					env: body.env ? normalizeAgentEnvMap(body.env) : undefined,
 					workspaceId: workspaceScope.workspaceId,
 				});
 
