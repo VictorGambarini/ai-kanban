@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.1.72]
+
+- Pick a model per task for CLI agents (Claude Code, Codex, Droid, Gemini): each task's "Override Agent Settings" now has a Model picker (curated dropdown plus free-text Custom entry) that's injected as the agent's `--model` flag at launch. Cline keeps its existing provider/model selector
+- Add or remove skills on a task that's already In Progress or Review: a new "Skills" button syncs the selected skills into the running task's worktree without a session restart — Claude Code picks up newly added skills on its next turn, and deselected ones are removed (hand-authored skill directories are left untouched)
+- Custom / OpenAI-compatible providers (Ollama, MLX, LiteLLM, any custom base URL) now work reliably: they're re-registered from disk on every runtime start, so they no longer disappear after a restart with "Provider … is not known". A provider's saved request timeout and headers are honored on every run, and the LiteLLM model-list fetch no longer caps slow local endpoints
+- Restarting the runtime no longer loses work: In Progress/Review tasks and their worktrees are preserved (previously they were moved to Done and deleted), in-flight agent sessions resume in place on the next message, and cards can now be dragged back into Backlog from any column
+- New on-screen special-key bar on mobile terminals — tap arrows, `Esc`, `Tab`, `Ctrl+C`, and `Enter` when driving a Claude Code / Cline session from a phone that has no physical keys
+- Capped live terminal memory: the browser tab no longer grows to multiple GB with several sessions open. Live terminals are LRU-capped (default 20, configurable 1–200 in Settings → Appearance → Terminal sessions) and the WebGL renderer is scoped to the visible terminal; evicted sessions rebuild from the server snapshot on reopen
+
 ## [0.1.71]
 
 - Control remote machines ("VMs") from one hub: register hosts over SSH in the new host switcher and scope the whole board to a local or remote machine
