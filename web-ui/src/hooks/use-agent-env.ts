@@ -1,7 +1,7 @@
 import type { AgentEnvConfig } from "@runtime-agent-env";
 import { useCallback, useState } from "react";
 
-import { fetchAgentEnvConfig, saveAgentEnvConfig } from "@/runtime/runtime-config-query";
+import { fetchAgentEnvConfig, saveAgentEnvConfig } from "@/runtime/agent-env-query";
 import { useTrpcQuery } from "@/runtime/use-trpc-query";
 
 const EMPTY_CONFIG: AgentEnvConfig = { global: {}, projects: {}, tasks: {} };

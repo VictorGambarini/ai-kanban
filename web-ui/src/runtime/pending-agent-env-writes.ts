@@ -10,7 +10,7 @@
 //     always sees the env that was set in the create dialog.
 import type { AgentEnvMap } from "@runtime-agent-env";
 
-import { fetchAgentEnvConfig, saveAgentEnvConfig } from "@/runtime/runtime-config-query";
+import { fetchAgentEnvConfig, saveAgentEnvConfig } from "@/runtime/agent-env-query";
 
 let writeChain: Promise<unknown> = Promise.resolve();
 const pendingByTask = new Map<string, Promise<void>>();

@@ -17,6 +17,7 @@ import {
 	moveTaskToColumn,
 	updateTask,
 } from "@/state/board-state";
+import { planSessionReconcile } from "@/state/session-board-reconcile";
 import { clearTaskWorkspaceInfo, setTaskWorkspaceInfo } from "@/stores/workspace-metadata-store";
 import type { SendTerminalInputOptions } from "@/terminal/terminal-input";
 import type { BoardCard, BoardColumnId, BoardData } from "@/types";
@@ -434,68 +435,43 @@ export function useBoardInteractions({
 			let nextBoard = currentBoard;
 			const previousSessions = previousSessionsRef.current;
 			const blockedInterruptedTaskIds = new Set<string>();
-			for (const summary of Object.values(sessions)) {
-				const previous = previousSessions[summary.taskId];
-				if (previous && previous.updatedAt > summary.updatedAt) {
-					continue;
-				}
-				const columnId = getTaskColumnId(nextBoard, summary.taskId);
-				if (summary.state === "awaiting_review" && columnId === "in_progress") {
-					const programmaticMoveAttempt = tryProgrammaticCardMove(summary.taskId, columnId, "review");
-					if (programmaticMoveAttempt === "started" || programmaticMoveAttempt === "blocked") {
-						continue;
-					}
-					const moved = moveTaskToColumn(nextBoard, summary.taskId, "review", { insertAtTop: true });
-					if (moved.moved) {
-						nextBoard = moved.board;
-					}
-					continue;
-				}
-				if (summary.state === "running" && columnId === "review") {
-					const programmaticMoveAttempt = tryProgrammaticCardMove(summary.taskId, columnId, "in_progress", {
-						skipKickoff: true,
-					});
-					if (programmaticMoveAttempt === "started" || programmaticMoveAttempt === "blocked") {
-						continue;
-					}
-					const moved = moveTaskToColumn(nextBoard, summary.taskId, "in_progress", { insertAtTop: true });
-					if (moved.moved) {
-						nextBoard = moved.board;
-					}
-					continue;
-				}
-				if (
-					summary.state === "interrupted" &&
-					// Only auto-trash on a genuine live interruption observed in this browser session.
-					// On initial hydration `previous` is undefined, so a session that was already
-					// interrupted in persisted state (e.g. after a runtime restart) stays put and remains
-					// resumable instead of being trashed.
-					previous &&
-					previous.state !== "interrupted" &&
-					// Auto-trash only applies to active work columns. A task sitting in backlog (e.g. one
-					// the user just dragged back, which stops its session) must never be auto-trashed.
-					(columnId === "in_progress" || columnId === "review")
-				) {
-					const nextTaskId = getNextDetailTaskIdAfterTrashMove(nextBoard, summary.taskId);
-					const programmaticMoveAttempt = tryProgrammaticCardMove(summary.taskId, columnId, "trash", {
+			// The decider owns the rules + data-loss guards; this loop only applies each
+			// intended move, choosing the animated (programmatic) path when one is available
+			// and falling back to a direct board mutation otherwise.
+			for (const action of planSessionReconcile(nextBoard, sessions, previousSessions)) {
+				if (action.to === "trash") {
+					const nextTaskId = getNextDetailTaskIdAfterTrashMove(nextBoard, action.taskId);
+					const programmaticMoveAttempt = tryProgrammaticCardMove(action.taskId, action.from, "trash", {
 						skipTrashWorkflow: true,
 					});
 					if (programmaticMoveAttempt === "started" || programmaticMoveAttempt === "blocked") {
 						if (programmaticMoveAttempt === "blocked") {
-							blockedInterruptedTaskIds.add(summary.taskId);
+							blockedInterruptedTaskIds.add(action.taskId);
 						}
 						setSelectedTaskId((currentSelectedTaskId) =>
-							currentSelectedTaskId === summary.taskId ? nextTaskId : currentSelectedTaskId,
+							currentSelectedTaskId === action.taskId ? nextTaskId : currentSelectedTaskId,
 						);
 						continue;
 					}
-					const moved = moveTaskToColumn(nextBoard, summary.taskId, "trash", { insertAtTop: true });
+					const moved = moveTaskToColumn(nextBoard, action.taskId, "trash", { insertAtTop: true });
 					if (moved.moved) {
 						setSelectedTaskId((currentSelectedTaskId) =>
-							currentSelectedTaskId === summary.taskId ? nextTaskId : currentSelectedTaskId,
+							currentSelectedTaskId === action.taskId ? nextTaskId : currentSelectedTaskId,
 						);
 						nextBoard = moved.board;
 					}
+					continue;
+				}
+				// review / in_progress moves. Re-entering in_progress must skip the kickoff
+				// that a backlog->in_progress move would trigger (the session is already live).
+				const moveOptions = action.to === "in_progress" ? { skipKickoff: true } : undefined;
+				const programmaticMoveAttempt = tryProgrammaticCardMove(action.taskId, action.from, action.to, moveOptions);
+				if (programmaticMoveAttempt === "started" || programmaticMoveAttempt === "blocked") {
+					continue;
+				}
+				const moved = moveTaskToColumn(nextBoard, action.taskId, action.to, { insertAtTop: true });
+				if (moved.moved) {
+					nextBoard = moved.board;
 				}
 			}
 			const nextPreviousSessions = { ...sessions };

@@ -1,26 +1,17 @@
-import type { AgentEnvConfig } from "@runtime-agent-env";
 import { KeyRound } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
-
+import { useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Spinner } from "@/components/ui/spinner";
 import { useAgentEnv } from "@/hooks/use-agent-env";
+import { useAgentEnvScopeRows } from "@/hooks/use-agent-env-scope";
 
-import { type EnvRow, mapToRows, rowsToMap } from "./agent-env-rows";
+import { rowsToMap } from "./agent-env-rows";
+import { applyAgentEnvScope } from "./agent-env-scope";
 import { EnvVarsEditor } from "./env-vars-editor";
 
 interface AgentEnvSettingsSectionProps {
 	open: boolean;
 	workspaceId: string | null;
-}
-
-function rowsEqualMap(rows: EnvRow[], map: Record<string, string>): boolean {
-	const fromRows = rowsToMap(rows);
-	const keys = Object.keys(fromRows);
-	if (keys.length !== Object.keys(map).length) {
-		return false;
-	}
-	return keys.every((key) => fromRows[key] === map[key]);
 }
 
 /**
@@ -37,37 +28,18 @@ export function AgentEnvSettingsSection({ open, workspaceId }: AgentEnvSettingsS
 		[config.projects, workspaceId],
 	);
 
-	const [globalRows, setGlobalRows] = useState<EnvRow[]>([]);
-	const [projectRows, setProjectRows] = useState<EnvRow[]>([]);
+	const globalScope = useAgentEnvScopeRows(config.global);
+	const projectScope = useAgentEnvScopeRows(projectMap);
 	const [saveError, setSaveError] = useState<string | null>(null);
 
-	// Re-seed editor rows whenever the loaded config (or active project) changes.
-	useEffect(() => {
-		setGlobalRows(mapToRows(config.global));
-	}, [config.global]);
-	useEffect(() => {
-		setProjectRows(mapToRows(projectMap));
-	}, [projectMap]);
-
-	const isDirty =
-		!rowsEqualMap(globalRows, config.global) || (workspaceId !== null && !rowsEqualMap(projectRows, projectMap));
+	const isDirty = globalScope.isDirty || (workspaceId !== null && projectScope.isDirty);
 
 	const handleSave = async (): Promise<void> => {
 		setSaveError(null);
-		const nextProjects: AgentEnvConfig["projects"] = { ...config.projects };
-		if (workspaceId) {
-			const nextProjectMap = rowsToMap(projectRows);
-			if (Object.keys(nextProjectMap).length > 0) {
-				nextProjects[workspaceId] = nextProjectMap;
-			} else {
-				delete nextProjects[workspaceId];
-			}
-		}
-		const nextConfig: AgentEnvConfig = {
-			global: rowsToMap(globalRows),
-			projects: nextProjects,
-			tasks: config.tasks,
-		};
+		const withGlobal = applyAgentEnvScope(config, { kind: "global" }, rowsToMap(globalScope.rows));
+		const nextConfig = workspaceId
+			? applyAgentEnvScope(withGlobal, { kind: "project", projectId: workspaceId }, rowsToMap(projectScope.rows))
+			: withGlobal;
 		try {
 			await save(nextConfig);
 		} catch (error) {
@@ -107,8 +79,8 @@ export function AgentEnvSettingsSection({ open, workspaceId }: AgentEnvSettingsS
 			<div className="rounded-lg border border-border bg-surface-0 px-4 py-3 mb-4">
 				<h6 className="text-[12px] font-semibold uppercase tracking-wider text-text-secondary m-0 mb-2">Global</h6>
 				<EnvVarsEditor
-					rows={globalRows}
-					onChange={setGlobalRows}
+					rows={globalScope.rows}
+					onChange={globalScope.setRows}
 					disabled={controlsDisabled}
 					emptyLabel="No global variables. These apply to every project and task."
 				/>
@@ -120,8 +92,8 @@ export function AgentEnvSettingsSection({ open, workspaceId }: AgentEnvSettingsS
 				</h6>
 				{workspaceId ? (
 					<EnvVarsEditor
-						rows={projectRows}
-						onChange={setProjectRows}
+						rows={projectScope.rows}
+						onChange={projectScope.setRows}
 						disabled={controlsDisabled}
 						emptyLabel="No project variables. These override global vars for this project."
 					/>

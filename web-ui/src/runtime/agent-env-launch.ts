@@ -8,9 +8,8 @@
 // tasks. Resolution failures never block a launch; the task just starts without
 // custom env.
 import { type AgentEnvMap, resolveEffectiveAgentEnv } from "@runtime-agent-env";
-
+import { fetchAgentEnvConfig } from "@/runtime/agent-env-query";
 import { whenTaskEnvWriteSettled } from "@/runtime/pending-agent-env-writes";
-import { fetchAgentEnvConfig } from "@/runtime/runtime-config-query";
 
 export async function resolveLaunchAgentEnv(scope: {
 	projectId?: string | null;
