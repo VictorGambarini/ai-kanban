@@ -76,6 +76,17 @@ export interface StartClineTaskSessionRequest {
 	systemPrompt?: string | null;
 }
 
+/**
+ * Launch identity recovered from a persisted SDK session record. Enough to re-resolve the
+ * provider secrets and relaunch a Cline task in place after a runtime restart wiped the
+ * in-memory launch config.
+ */
+export interface ClinePersistedTaskLaunchInfo {
+	providerId: string;
+	modelId: string;
+	cwd: string;
+}
+
 export interface ClineTaskSessionService {
 	onSummary(listener: (summary: RuntimeTaskSessionSummary) => void): () => void;
 	onMessage(listener: (taskId: string, message: ClineTaskMessage) => void): () => void;
@@ -92,6 +103,14 @@ export interface ClineTaskSessionService {
 	reloadTaskSession(taskId: string): Promise<RuntimeTaskSessionSummary | null>;
 	clearTaskSession(taskId: string): Promise<RuntimeTaskSessionSummary | null>;
 	rebindPersistedTaskSession(taskId: string): Promise<RuntimeTaskSessionSummary | null>;
+	/**
+	 * Whether a follow-up message can be delivered to this task without relaunching — i.e. the
+	 * runtime still holds a live session or a restartable launch config. Returns false after a
+	 * runtime restart, when only the on-disk session survives.
+	 */
+	canResumeTaskSessionInPlace(taskId: string): boolean;
+	/** Recover provider/model/cwd from the persisted SDK session so the task can be relaunched. */
+	readPersistedTaskLaunchInfo(taskId: string): Promise<ClinePersistedTaskLaunchInfo | null>;
 	getSummary(taskId: string): RuntimeTaskSessionSummary | null;
 	listSummaries(): RuntimeTaskSessionSummary[];
 	listMessages(taskId: string): ClineTaskMessage[];
@@ -733,6 +752,24 @@ export class InMemoryClineTaskSessionService implements ClineTaskSessionService 
 		this.messageRepository.setTaskEntry(taskId, clearedEntry);
 		this.emitSummary(clearedEntry.summary);
 		return cloneSummary(clearedEntry.summary);
+	}
+
+	canResumeTaskSessionInPlace(taskId: string): boolean {
+		return Boolean(this.sessionRuntime.getTaskSessionId(taskId)) || this.sessionRuntime.canRestartTaskSession(taskId);
+	}
+
+	async readPersistedTaskLaunchInfo(taskId: string): Promise<ClinePersistedTaskLaunchInfo | null> {
+		const snapshot = await this.sessionRuntime.readPersistedTaskSession(taskId);
+		if (!snapshot) {
+			return null;
+		}
+		const record = snapshot.record;
+		const providerId = typeof record.provider === "string" ? record.provider.trim() : "";
+		const modelId = typeof record.model === "string" ? record.model.trim() : "";
+		const cwd =
+			(typeof record.cwd === "string" ? record.cwd.trim() : "") ||
+			(typeof record.workspaceRoot === "string" ? record.workspaceRoot.trim() : "");
+		return { providerId, modelId, cwd };
 	}
 
 	async rebindPersistedTaskSession(taskId: string): Promise<RuntimeTaskSessionSummary | null> {
