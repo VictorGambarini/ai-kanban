@@ -271,7 +271,6 @@ export function BoardCard({
 	const [isDescriptionExpanded, setIsDescriptionExpanded] = useState(false);
 	const reviewWorkspaceSnapshot = useTaskWorkspaceSnapshotValue(card.id);
 	const isTrashCard = columnId === "trash";
-	const isCardInteractive = !isTrashCard;
 	const descriptionWidth = descriptionRect.width > 0 ? descriptionRect.width : descriptionWidthFallback;
 	const rawSessionActivity = useMemo(() => getCardSessionActivity(sessionSummary), [sessionSummary]);
 	const lastSessionActivityRef = useRef<CardSessionActivity | null>(null);
@@ -493,7 +492,7 @@ export function BoardCard({
 						data-column-id={columnId}
 						data-selected={selected}
 						onMouseDownCapture={(event) => {
-							if (!isCardInteractive) {
+							if (isTrashCard) {
 								return;
 							}
 							if (isDependencyLinking) {
@@ -513,9 +512,6 @@ export function BoardCard({
 							onDependencyPointerDown?.(card.id, event);
 						}}
 						onClick={(event) => {
-							if (!isCardInteractive) {
-								return;
-							}
 							if (isDependencyLinking) {
 								event.preventDefault();
 								event.stopPropagation();
@@ -552,9 +548,9 @@ export function BoardCard({
 						<div
 							className={cn(
 								"rounded-md border border-border-bright bg-surface-2 p-2.5",
-								isCardInteractive && "cursor-pointer hover:bg-surface-3 hover:border-border-bright",
+								"cursor-pointer hover:bg-surface-3 hover:border-border-bright",
 								isDragging && "shadow-lg",
-								isHovered && isCardInteractive && "bg-surface-3 border-border-bright",
+								isHovered && "bg-surface-3 border-border-bright",
 								isDependencySource && "kb-board-card-dependency-source",
 								isDependencyTarget && "kb-board-card-dependency-target",
 							)}

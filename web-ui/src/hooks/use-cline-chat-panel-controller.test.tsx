@@ -266,6 +266,26 @@ describe("useClineChatPanelController", () => {
 		expect(requireSnapshot(latestSnapshot).showCancelAutomaticAction).toBe(true);
 	});
 
+	it("disables sending for done (trash column) tasks even when onSendMessage is provided", async () => {
+		let latestSnapshot: HookSnapshot | null = null;
+
+		await act(async () => {
+			root.render(
+				<HookHarness
+					summary={createSummary("idle")}
+					taskColumnId="trash"
+					onSendMessage={async () => ({ ok: true })}
+					onSnapshot={(snapshot) => {
+						latestSnapshot = snapshot;
+					}}
+				/>,
+			);
+			await Promise.resolve();
+		});
+
+		expect(requireSnapshot(latestSnapshot).canSend).toBe(false);
+	});
+
 	it("hides review actions after the workspace becomes clean", async () => {
 		let latestSnapshot: HookSnapshot | null = null;
 		setTaskWorkspaceSnapshot({

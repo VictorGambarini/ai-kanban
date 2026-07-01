@@ -472,7 +472,9 @@ export const ClineAgentChatPanel = React.forwardRef<ClineAgentChatPanelHandle, C
 						onSelectReasoningEffort={handleSelectReasoningEffort}
 						isModelLoading={clineSettings.isLoadingProviderModels}
 						isModelSaving={isSavingModel}
-						modelPickerDisabled={isSavingModel || clineSettings.providerId.trim().length === 0}
+						modelPickerDisabled={
+							isSavingModel || clineSettings.providerId.trim().length === 0 || taskColumnId === "trash"
+						}
 						isSending={isSavingModel || isSending}
 						warningMessage={summary?.warningMessage ?? null}
 						attachmentWarningMessage={attachmentWarningMessage}

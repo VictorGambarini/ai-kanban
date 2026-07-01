@@ -615,6 +615,9 @@ export function CardDetailView({
 
 	const handleAddDiffComments = useCallback(
 		(formatted: string) => {
+			if (selection.column.id === "trash") {
+				return;
+			}
 			if (showClineAgentChatPanel) {
 				clineAgentChatPanelRef.current?.appendToDraft(formatted);
 				setIsDiffExpanded(false);
@@ -622,11 +625,14 @@ export function CardDetailView({
 			}
 			onAddReviewComments?.(selection.card.id, formatted);
 		},
-		[onAddReviewComments, selection.card.id, showClineAgentChatPanel],
+		[onAddReviewComments, selection.card.id, selection.column.id, showClineAgentChatPanel],
 	);
 
 	const handleSendDiffComments = useCallback(
 		(formatted: string) => {
+			if (selection.column.id === "trash") {
+				return;
+			}
 			if (showClineAgentChatPanel) {
 				void clineAgentChatPanelRef.current?.sendText(formatted);
 				setIsDiffExpanded(false);
@@ -635,7 +641,7 @@ export function CardDetailView({
 			onSendReviewComments?.(selection.card.id, formatted);
 			setIsDiffExpanded(false);
 		},
-		[onSendReviewComments, selection.card.id, showClineAgentChatPanel],
+		[onSendReviewComments, selection.card.id, selection.column.id, showClineAgentChatPanel],
 	);
 
 	const showBottomTerminal = bottomTerminalOpen && !!bottomTerminalTaskId;

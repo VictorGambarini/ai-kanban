@@ -73,7 +73,7 @@ export function useClineChatPanelController({
 		incomingMessages,
 		incomingMessage,
 	});
-	const canSend = Boolean(onSendMessage) && !isSending && !isCanceling;
+	const canSend = Boolean(onSendMessage) && !isSending && !isCanceling && taskColumnId !== "trash";
 	const canCancel = Boolean(onCancelTurn) && summary?.state === "running" && !isCanceling;
 	const showReviewActions =
 		taskColumnId === "review" &&
