@@ -2,7 +2,7 @@ import "@xterm/xterm/css/xterm.css";
 
 import { Command, Maximize2, MessageSquare, Minimize2, X } from "lucide-react";
 import type { MutableRefObject, ReactElement } from "react";
-import { useMemo } from "react";
+import { useEffect, useMemo } from "react";
 
 import { TerminalKeyBar } from "@/components/detail-panels/terminal-key-bar";
 import { Button } from "@/components/ui/button";
@@ -11,6 +11,7 @@ import { Tooltip } from "@/components/ui/tooltip";
 import { useIsMobile } from "@/hooks/use-is-mobile";
 import type { RuntimeTaskSessionSummary } from "@/runtime/types";
 import { useTaskWorkspaceSnapshotValue } from "@/stores/workspace-metadata-store";
+import type { TerminalConnectionStatus } from "@/terminal/persistent-terminal-manager";
 import { usePersistentTerminalSession } from "@/terminal/use-persistent-terminal-session";
 import { isMacPlatform } from "@/utils/platform";
 
@@ -19,6 +20,8 @@ interface AgentTerminalSessionControls {
 	containerRef: MutableRefObject<HTMLDivElement | null>;
 	isStopping: boolean;
 	lastError: string | null;
+	connectionStatus: TerminalConnectionStatus;
+	reconnectTerminal: () => void;
 	stopTerminal: () => Promise<void>;
 }
 
@@ -52,6 +55,7 @@ export interface AgentTerminalPanelProps {
 	onSendAgentCommand?: () => void;
 	isExpanded?: boolean;
 	onToggleExpand?: () => void;
+	onConnectionStatusChange?: (status: TerminalConnectionStatus) => void;
 }
 
 function describeState(summary: RuntimeTaskSessionSummary | null): string {
@@ -174,7 +178,8 @@ function AgentTerminalPanelLayout({
 	onToggleExpand,
 	sessionControls,
 }: AgentTerminalPanelProps & { sessionControls: AgentTerminalSessionControls }): ReactElement {
-	const { containerRef, lastError, isStopping, clearTerminal, stopTerminal } = sessionControls;
+	const { containerRef, lastError, isStopping, connectionStatus, reconnectTerminal, clearTerminal, stopTerminal } =
+		sessionControls;
 	const isMobile = useIsMobile();
 	const canStop = summary?.state === "running" || summary?.state === "awaiting_review";
 	const statusLabel = useMemo(() => describeState(summary), [summary]);
@@ -314,8 +319,13 @@ function AgentTerminalPanelLayout({
 				/>
 			</div>
 			{lastError ? (
-				<div className="flex gap-2 rounded-none border-t border-status-red/30 bg-status-red/10 p-3 text-[13px] text-status-red">
-					{lastError}
+				<div className="flex items-center justify-between gap-2 rounded-none border-t border-status-red/30 bg-status-red/10 p-3 text-[13px] text-status-red">
+					<span className="min-w-0">{lastError}</span>
+					{connectionStatus === "disconnected" ? (
+						<Button variant="default" size="sm" onClick={reconnectTerminal}>
+							Reconnect
+						</Button>
+					) : null}
 				</div>
 			) : null}
 			{showMoveToTrash && onMoveToTrash ? (
@@ -357,6 +367,12 @@ export function AgentTerminalPanel(props: AgentTerminalPanelProps): ReactElement
 		terminalBackgroundColor: props.terminalBackgroundColor ?? "var(--color-surface-1)",
 		cursorColor: props.cursorColor ?? "var(--color-text-primary)",
 	});
+
+	const { onConnectionStatusChange } = props;
+	const { connectionStatus } = sessionControls;
+	useEffect(() => {
+		onConnectionStatusChange?.(connectionStatus);
+	}, [onConnectionStatusChange, connectionStatus]);
 
 	return <AgentTerminalPanelLayout {...props} sessionControls={sessionControls} />;
 }

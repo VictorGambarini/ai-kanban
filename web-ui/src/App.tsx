@@ -620,6 +620,28 @@ export default function App(): ReactElement {
 		runAutoReviewGitAction,
 	});
 
+	// Restart the agent for a started (in_progress/review) CLI card. The lightweight
+	// env-restart re-spawns the existing process, but it can only replay a launch
+	// recipe the runtime still holds in memory — after a runtime restart that recipe
+	// is gone and the call reports not-ok. In that case fall back to a full resume
+	// from the card's own config (which the client still has), so Restart works
+	// whether or not the runtime was bounced. resume replays the agent's on-disk
+	// session (empty prompt + --continue) rather than re-running the task.
+	const handleRestartTaskAgent = useCallback(
+		async (taskId: string): Promise<{ ok: boolean; message?: string }> => {
+			const result = await restartTaskSessionEnv(taskId);
+			if (result.ok) {
+				return result;
+			}
+			const selection = findCardSelection(board, taskId);
+			if (!selection) {
+				return result;
+			}
+			return await startTaskSession(selection.card, { resume: true });
+		},
+		[restartTaskSessionEnv, startTaskSession, board],
+	);
+
 	const {
 		handleCreateAndStartTask,
 		handleCreateAndStartTasks,
@@ -1068,7 +1090,7 @@ export default function App(): ReactElement {
 									}}
 									onSaveTaskTitle={handleSaveTaskTitle}
 									onTaskSkillsChanged={handleTaskSkillsChanged}
-									onRestartTaskEnv={restartTaskSessionEnv}
+									onRestartTaskEnv={handleRestartTaskAgent}
 									onCommitTask={handleCommitTask}
 									onOpenPrTask={handleOpenPrTask}
 									onAgentCommitTask={handleAgentCommitTask}

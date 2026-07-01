@@ -4,11 +4,13 @@ import type { MouseEvent as ReactMouseEvent, ReactNode } from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useHotkeys } from "react-hotkeys-hook";
 import { TaskEnvButton } from "@/components/agent-env/task-env-button";
+import { AgentStatusIndicator } from "@/components/detail-panels/agent-status-indicator";
 import { AgentTerminalPanel } from "@/components/detail-panels/agent-terminal-panel";
 import { ClineAgentChatPanel, type ClineAgentChatPanelHandle } from "@/components/detail-panels/cline-agent-chat-panel";
 import { ColumnContextPanel } from "@/components/detail-panels/column-context-panel";
 import { type DiffLineComment, DiffViewerPanel } from "@/components/detail-panels/diff-viewer-panel";
 import { FileTreePanel } from "@/components/detail-panels/file-tree-panel";
+import { RestartAgentButton } from "@/components/detail-panels/restart-agent-button";
 import { TaskSkillsButton } from "@/components/skills/task-skills-button";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/components/ui/cn";
@@ -30,6 +32,7 @@ import type {
 } from "@/runtime/types";
 import { useRuntimeWorkspaceChanges } from "@/runtime/use-runtime-workspace-changes";
 import { useTaskWorkspaceStateVersionValue } from "@/stores/workspace-metadata-store";
+import type { TerminalConnectionStatus } from "@/terminal/persistent-terminal-manager";
 import { useTerminalThemeColors } from "@/terminal/theme-colors";
 import { type BoardCard, type CardSelection, getTaskAutoReviewCancelButtonLabel } from "@/types";
 import { useWindowEvent } from "@/utils/react-use";
@@ -637,6 +640,15 @@ export function CardDetailView({
 
 	const showBottomTerminal = bottomTerminalOpen && !!bottomTerminalTaskId;
 
+	// Live transport status for this card's agent terminal, forwarded up from the
+	// persistent terminal so the control bar can show a connection indicator. Reset
+	// on card change so a previous card's status never leaks before the new panel
+	// reports in.
+	const [terminalConnectionStatus, setTerminalConnectionStatus] = useState<TerminalConnectionStatus>("reconnecting");
+	useEffect(() => {
+		setTerminalConnectionStatus("reconnecting");
+	}, [selection.card.id]);
+
 	const agentChatPanel = showClineAgentChatPanel ? (
 		<ClineAgentChatPanel
 			ref={clineAgentChatPanelRef}
@@ -704,6 +716,7 @@ export function CardDetailView({
 			terminalBackgroundColor={terminalThemeColors.surfacePrimary}
 			cursorColor={terminalThemeColors.textPrimary}
 			taskColumnId={selection.column.id}
+			onConnectionStatusChange={setTerminalConnectionStatus}
 		/>
 	);
 
@@ -719,30 +732,50 @@ export function CardDetailView({
 	const showTaskEnvControl = !showClineAgentChatPanel && isStartedColumn;
 	// A started CLI task already spawned its agent, so applying new env needs a restart.
 	const envRequiresRestart = isStartedColumn;
-	const showTaskControlBar = showTaskEnvControl || showTaskSkillsControl;
+	// The terminal agent (non-Cline) is the only one whose transport can silently
+	// break, and the only one we can re-spawn from the UI — so the connection status
+	// and Restart control belong to it specifically.
+	const showTerminalAgentControls = isStartedColumn && !showClineAgentChatPanel;
+	const showTaskControlBar = showTaskEnvControl || showTaskSkillsControl || showTerminalAgentControls;
 	const agentArea = (
 		<div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
 			{showTaskControlBar ? (
-				<div className="flex items-center justify-end gap-2 border-b border-border bg-surface-1 px-2 py-1">
-					{showTaskEnvControl ? (
-						<TaskEnvButton
-							taskId={selection.card.id}
-							requiresRestartToApply={envRequiresRestart}
-							onRequestRestart={
-								envRequiresRestart && onRestartTaskEnv ? () => onRestartTaskEnv(selection.card.id) : undefined
-							}
-						/>
-					) : null}
-					{showTaskSkillsControl ? (
-						<TaskSkillsButton
-							workspaceId={currentProjectId}
-							taskId={selection.card.id}
-							baseRef={selection.card.baseRef}
-							agentId={selection.card.agentId}
-							selectedSkillNames={selection.card.skillNames ?? []}
-							onPersist={(skillNames) => onTaskSkillsChanged?.(selection.card.id, skillNames)}
-						/>
-					) : null}
+				<div className="flex items-center justify-between gap-2 border-b border-border bg-surface-1 px-2 py-1">
+					<div className="flex min-w-0 items-center gap-2">
+						{showTerminalAgentControls ? (
+							<AgentStatusIndicator summary={sessionSummary} connectionStatus={terminalConnectionStatus} />
+						) : null}
+					</div>
+					<div className="flex items-center gap-2">
+						{showTerminalAgentControls && onRestartTaskEnv ? (
+							<RestartAgentButton
+								taskId={selection.card.id}
+								summary={sessionSummary}
+								onRestart={onRestartTaskEnv}
+							/>
+						) : null}
+						{showTaskEnvControl ? (
+							<TaskEnvButton
+								taskId={selection.card.id}
+								requiresRestartToApply={envRequiresRestart}
+								onRequestRestart={
+									envRequiresRestart && onRestartTaskEnv
+										? () => onRestartTaskEnv(selection.card.id)
+										: undefined
+								}
+							/>
+						) : null}
+						{showTaskSkillsControl ? (
+							<TaskSkillsButton
+								workspaceId={currentProjectId}
+								taskId={selection.card.id}
+								baseRef={selection.card.baseRef}
+								agentId={selection.card.agentId}
+								selectedSkillNames={selection.card.skillNames ?? []}
+								onPersist={(skillNames) => onTaskSkillsChanged?.(selection.card.id, skillNames)}
+							/>
+						) : null}
+					</div>
 				</div>
 			) : null}
 			{agentChatPanel}

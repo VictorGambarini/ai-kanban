@@ -3,7 +3,11 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { getTerminalThemeColors, useTheme } from "@/hooks/use-theme";
 import type { RuntimeTaskSessionSummary } from "@/runtime/types";
-import { disposePersistentTerminal, ensurePersistentTerminal } from "@/terminal/persistent-terminal-manager";
+import {
+	disposePersistentTerminal,
+	ensurePersistentTerminal,
+	type TerminalConnectionStatus,
+} from "@/terminal/persistent-terminal-manager";
 import { registerTerminalController } from "@/terminal/terminal-controller-registry";
 
 interface UsePersistentTerminalSessionInput {
@@ -23,8 +27,10 @@ export interface UsePersistentTerminalSessionResult {
 	containerRef: MutableRefObject<HTMLDivElement | null>;
 	lastError: string | null;
 	isStopping: boolean;
+	connectionStatus: TerminalConnectionStatus;
 	clearTerminal: () => void;
 	stopTerminal: () => Promise<void>;
+	reconnectTerminal: () => void;
 }
 
 export function usePersistentTerminalSession({
@@ -57,6 +63,7 @@ export function usePersistentTerminalSession({
 	} | null>(null);
 	const [lastError, setLastError] = useState<string | null>(null);
 	const [isStopping, setIsStopping] = useState(false);
+	const [connectionStatus, setConnectionStatus] = useState<TerminalConnectionStatus>("reconnecting");
 	callbackRef.current = {
 		onSummary,
 		onConnectionReady,
@@ -118,6 +125,7 @@ export function usePersistentTerminalSession({
 			onConnectionReady: (connectedTaskId) => {
 				callbackRef.current.onConnectionReady?.(connectedTaskId);
 			},
+			onConnectionStatus: setConnectionStatus,
 			onLastError: setLastError,
 			onSummary: (summary) => {
 				callbackRef.current.onSummary?.(summary);
@@ -183,11 +191,17 @@ export function usePersistentTerminalSession({
 		terminalRef.current?.clear();
 	}, []);
 
+	const reconnectTerminal = useCallback(() => {
+		terminalRef.current?.reconnect();
+	}, []);
+
 	return {
 		containerRef,
 		lastError,
 		isStopping,
+		connectionStatus,
 		clearTerminal,
 		stopTerminal,
+		reconnectTerminal,
 	};
 }

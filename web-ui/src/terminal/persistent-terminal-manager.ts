@@ -28,6 +28,19 @@ const RESIZE_DEBOUNCE_MS = 50;
 const APPROX_TERMINAL_CELL_HEIGHT_PX = 16;
 const INTERRUPT_IDLE_SETTLE_MS = 250;
 const PARKING_ROOT_ID = "kb-persistent-terminal-parking-root";
+// Reconnect backoff: retry quickly at first, capped, so a brief blip self-heals
+// without the user noticing. We keep retrying past the silent-attempt budget (at the
+// capped delay) so the terminal still recovers once connectivity returns — we just
+// stop hiding it and surface a "disconnected" status after that many failures.
+const RECONNECT_BASE_DELAY_MS = 500;
+const RECONNECT_MAX_DELAY_MS = 5_000;
+const MAX_SILENT_RECONNECT_ATTEMPTS = 6;
+// The server pushes a control-socket heartbeat every ~10s. If we see no control
+// frame for this long the pipe is assumed half-open (e.g. laptop sleep / network
+// change that never delivered a close) and we force a reconnect.
+const CONTROL_HEARTBEAT_WATCHDOG_MS = 25_000;
+
+export type TerminalConnectionStatus = "connected" | "reconnecting" | "disconnected";
 
 interface PersistentTerminalAppearance {
 	cursorColor: string;
@@ -37,6 +50,7 @@ interface PersistentTerminalAppearance {
 
 interface PersistentTerminalSubscriber {
 	onConnectionReady?: (taskId: string) => void;
+	onConnectionStatus?: (status: TerminalConnectionStatus) => void;
 	onLastError?: (message: string | null) => void;
 	onSummary?: (summary: RuntimeTaskSessionSummary) => void;
 	onOutputText?: (text: string) => void;
@@ -164,6 +178,12 @@ class PersistentTerminal {
 	private controlSocket: WebSocket | null = null;
 	private connectionReady = false;
 	private restoreCompleted = false;
+	private connectionStatus: TerminalConnectionStatus = "reconnecting";
+	private reconnectAttempts = 0;
+	private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+	private reconnectScheduled = false;
+	private intentionallyClosed = false;
+	private heartbeatWatchdogTimer: ReturnType<typeof setTimeout> | null = null;
 	private outputTextDecoder = new TextDecoder();
 	private terminalWriteQueue: Promise<void> = Promise.resolve();
 	private removeTouchScrollListeners: (() => void) | null = null;
@@ -376,6 +396,117 @@ class PersistentTerminal {
 		}
 	}
 
+	private setConnectionStatus(status: TerminalConnectionStatus): void {
+		if (this.connectionStatus === status) {
+			return;
+		}
+		this.connectionStatus = status;
+		for (const subscriber of this.subscribers) {
+			subscriber.onConnectionStatus?.(status);
+		}
+	}
+
+	// Recompute the transport status from the live socket states. Reaching a fully
+	// open pair clears the reconnect budget and any stale error; otherwise we stay
+	// "reconnecting" (silent) until the budget is spent, then flip to "disconnected".
+	private refreshConnectionStatus(): void {
+		const bothOpen =
+			this.ioSocket?.readyState === WebSocket.OPEN && this.controlSocket?.readyState === WebSocket.OPEN;
+		if (bothOpen) {
+			this.reconnectAttempts = 0;
+			if (this.lastError !== null) {
+				this.lastError = null;
+				this.notifyLastError();
+			}
+			this.setConnectionStatus("connected");
+			return;
+		}
+		if (this.reconnectAttempts > MAX_SILENT_RECONNECT_ATTEMPTS) {
+			this.setConnectionStatus("disconnected");
+			return;
+		}
+		this.setConnectionStatus("reconnecting");
+	}
+
+	private clearHeartbeatWatchdog(): void {
+		if (this.heartbeatWatchdogTimer !== null) {
+			clearTimeout(this.heartbeatWatchdogTimer);
+			this.heartbeatWatchdogTimer = null;
+		}
+	}
+
+	// Any control frame (state, restore, and especially the periodic heartbeat) means
+	// the pipe is alive. Resetting on every frame turns a stalled connection into a
+	// detectable event even when no close/error is ever delivered.
+	private resetHeartbeatWatchdog(): void {
+		this.clearHeartbeatWatchdog();
+		if (this.disposed || this.intentionallyClosed) {
+			return;
+		}
+		this.heartbeatWatchdogTimer = setTimeout(() => {
+			this.heartbeatWatchdogTimer = null;
+			this.handleConnectionLost();
+		}, CONTROL_HEARTBEAT_WATCHDOG_MS);
+	}
+
+	// Tear down both sockets and schedule a single reconnect of the pair. Both legs
+	// share one network path, so recovering them together avoids half-open limbo and
+	// the restore-snapshot races of reconnecting them independently.
+	private handleConnectionLost(): void {
+		if (this.disposed || this.intentionallyClosed || this.reconnectScheduled) {
+			return;
+		}
+		this.reconnectScheduled = true;
+		this.connectionReady = false;
+		this.restoreCompleted = false;
+		this.clearHeartbeatWatchdog();
+		this.closeSocketsForReconnect();
+
+		this.reconnectAttempts += 1;
+		this.refreshConnectionStatus();
+		if (this.reconnectAttempts > MAX_SILENT_RECONNECT_ATTEMPTS && this.lastError === null) {
+			this.lastError = "Connection lost. Retrying…";
+			this.notifyLastError();
+		}
+
+		const exponentialDelay = RECONNECT_BASE_DELAY_MS * 2 ** Math.min(this.reconnectAttempts - 1, 6);
+		const cappedDelay = Math.min(exponentialDelay, RECONNECT_MAX_DELAY_MS);
+		const delay = cappedDelay + Math.floor(Math.random() * 250);
+		this.reconnectTimer = setTimeout(() => {
+			this.reconnectTimer = null;
+			this.reconnectScheduled = false;
+			if (this.disposed || this.intentionallyClosed) {
+				return;
+			}
+			this.ensureConnected();
+		}, delay);
+	}
+
+	// Detach handlers and close the current sockets. Nulling our references first means
+	// the old sockets' own close/message handlers no-op (they guard on identity), so
+	// this never re-enters handleConnectionLost.
+	private closeSocketsForReconnect(): void {
+		const io = this.ioSocket;
+		const control = this.controlSocket;
+		this.ioSocket = null;
+		this.controlSocket = null;
+		this.outputTextDecoder = new TextDecoder();
+		if (io) {
+			try {
+				io.close();
+			} catch {
+				// Ignore close failures on an already-dead socket.
+			}
+		}
+		if (control) {
+			try {
+				control.close();
+			} catch {
+				// Ignore close failures on an already-dead socket.
+			}
+		}
+	}
+
 	private sendControlMessage(message: RuntimeTerminalWsClientMessage): void {
 		if (!this.controlSocket || this.controlSocket.readyState !== WebSocket.OPEN) {
 			return;
@@ -488,8 +619,7 @@ class PersistentTerminal {
 			if (this.disposed || this.ioSocket !== ioSocket) {
 				return;
 			}
-			this.lastError = null;
-			this.notifyLastError();
+			this.refreshConnectionStatus();
 			if (this.restoreCompleted && this.visibleContainer) {
 				this.requestResize();
 			}
@@ -498,11 +628,8 @@ class PersistentTerminal {
 			}
 		};
 		ioSocket.onerror = () => {
-			if (this.disposed || this.ioSocket !== ioSocket) {
-				return;
-			}
-			this.lastError = "Terminal stream failed.";
-			this.notifyLastError();
+			// onerror is immediately followed by onclose, which drives reconnection.
+			// We stay quiet here so a transient blip doesn't flash an error mid-recovery.
 		};
 		ioSocket.onclose = () => {
 			if (this.disposed || this.ioSocket !== ioSocket) {
@@ -510,10 +637,7 @@ class PersistentTerminal {
 			}
 			this.ioSocket = null;
 			this.outputTextDecoder = new TextDecoder();
-			this.connectionReady = false;
-			this.restoreCompleted = false;
-			this.lastError = "Terminal stream closed. Close and reopen to reconnect.";
-			this.notifyLastError();
+			this.handleConnectionLost();
 		};
 	}
 
@@ -524,15 +648,25 @@ class PersistentTerminal {
 			if (this.disposed || this.controlSocket !== controlSocket) {
 				return;
 			}
-			this.lastError = null;
-			this.notifyLastError();
+			this.refreshConnectionStatus();
+			this.resetHeartbeatWatchdog();
 		};
 		controlSocket.onmessage = (event) => {
+			if (this.disposed || this.controlSocket !== controlSocket) {
+				return;
+			}
+			// Any control frame proves the pipe is alive; restart the stall watchdog.
+			this.resetHeartbeatWatchdog();
 			let payload: RuntimeTerminalWsServerMessage;
 			try {
 				payload = JSON.parse(String(event.data)) as RuntimeTerminalWsServerMessage;
 			} catch {
 				// Ignore malformed control frames.
+				return;
+			}
+
+			if (payload.type === "heartbeat") {
+				// Liveness only — the watchdog reset above is the whole effect.
 				return;
 			}
 
@@ -577,19 +711,15 @@ class PersistentTerminal {
 			}
 		};
 		controlSocket.onerror = () => {
-			if (this.disposed || this.controlSocket !== controlSocket) {
-				return;
-			}
-			this.lastError = "Terminal control connection failed.";
-			this.notifyLastError();
+			// onerror is immediately followed by onclose, which drives reconnection.
 		};
 		controlSocket.onclose = () => {
 			if (this.disposed || this.controlSocket !== controlSocket) {
 				return;
 			}
 			this.controlSocket = null;
-			this.lastError = "Terminal control connection closed. Close and reopen to reconnect.";
-			this.notifyLastError();
+			this.clearHeartbeatWatchdog();
+			this.handleConnectionLost();
 		};
 	}
 
@@ -625,6 +755,7 @@ class PersistentTerminal {
 	subscribe(subscriber: PersistentTerminalSubscriber): () => void {
 		this.subscribers.add(subscriber);
 		subscriber.onLastError?.(this.lastError);
+		subscriber.onConnectionStatus?.(this.connectionStatus);
 		if (this.latestSummary) {
 			subscriber.onSummary?.(this.latestSummary);
 		}
@@ -634,6 +765,21 @@ class PersistentTerminal {
 		return () => {
 			this.subscribers.delete(subscriber);
 		};
+	}
+
+	// Force an immediate reconnect attempt, resetting the backoff. Used by the manual
+	// "Reconnect" affordance when the transport has been flagged disconnected.
+	reconnect(): void {
+		if (this.disposed) {
+			return;
+		}
+		if (this.reconnectTimer !== null) {
+			clearTimeout(this.reconnectTimer);
+			this.reconnectTimer = null;
+		}
+		this.reconnectScheduled = false;
+		this.reconnectAttempts = 0;
+		this.handleConnectionLost();
 	}
 
 	mount(
@@ -806,6 +952,12 @@ class PersistentTerminal {
 			return;
 		}
 		this.disposed = true;
+		this.intentionallyClosed = true;
+		if (this.reconnectTimer !== null) {
+			clearTimeout(this.reconnectTimer);
+			this.reconnectTimer = null;
+		}
+		this.clearHeartbeatWatchdog();
 		this.removeTouchScrollListeners?.();
 		this.removeTouchScrollListeners = null;
 		this.unmount(this.visibleContainer);
