@@ -238,6 +238,10 @@ function createClineTaskSessionServiceMock() {
 		rebindPersistedTaskSession: vi.fn<(...args: unknown[]) => Promise<RuntimeTaskSessionSummary | null>>(
 			async () => null,
 		),
+		// Default to in-place delivery so existing send tests take the unchanged path; tests that
+		// exercise post-restart recovery override this to false.
+		canResumeTaskSessionInPlace: vi.fn<(...args: unknown[]) => boolean>(() => true),
+		readPersistedTaskLaunchInfo: vi.fn<(...args: unknown[]) => Promise<unknown>>(async () => null),
 		getSummary: vi.fn<(...args: unknown[]) => RuntimeTaskSessionSummary | null>(() => null),
 		listSummaries: vi.fn<(...args: unknown[]) => RuntimeTaskSessionSummary[]>(() => []),
 		listMessages: vi.fn<(...args: unknown[]) => unknown[]>(() => []),
@@ -1646,6 +1650,101 @@ describe("createRuntimeApi startTaskSession", () => {
 			undefined,
 		);
 		expect(response.message).toEqual(latestMessage);
+	});
+
+	it("relaunches a non-home chat session from its persisted launch config when it can no longer deliver in place", async () => {
+		const summary = createSummary({ agentId: "cline", pid: null });
+		const latestMessage = {
+			id: "message-resume-1",
+			role: "user" as const,
+			content: "please continue",
+			createdAt: Date.now(),
+		};
+		const clineTaskSessionService = createClineTaskSessionServiceMock();
+		// Post-restart: no live session and no cached launch config, so an in-place send would
+		// dead-end async with "No previous Cline session config is available".
+		clineTaskSessionService.canResumeTaskSessionInPlace.mockReturnValue(false);
+		clineTaskSessionService.readPersistedTaskLaunchInfo.mockResolvedValue({
+			providerId: "openrouter",
+			modelId: "openrouter/auto",
+			cwd: "/tmp/worktree",
+		});
+		clineTaskSessionService.startTaskSession.mockResolvedValue(summary);
+		clineTaskSessionService.listMessages.mockReturnValue([latestMessage]);
+		setSelectedProviderSettings({
+			provider: "openrouter",
+			model: "openrouter/auto",
+			apiKey: "sk-or-test",
+			baseUrl: "https://openrouter.ai/api/v1",
+			reasoning: {},
+		});
+
+		const api = createTestRuntimeApi({
+			getActiveWorkspaceId: vi.fn(() => "workspace-1"),
+			loadScopedRuntimeConfig: vi.fn(async () => createRuntimeConfigState()),
+			setActiveRuntimeConfig: vi.fn(),
+			getScopedTerminalManager: vi.fn(async () => ({}) as never),
+			getScopedClineTaskSessionService: vi.fn(async () => clineTaskSessionService as never),
+			resolveInteractiveShellCommand: vi.fn(),
+			runCommand: vi.fn(),
+		});
+
+		const response = await api.sendTaskChatMessage(
+			{ workspaceId: "workspace-1", workspacePath: "/tmp/repo" },
+			{ taskId: "task-1", text: "please continue" },
+		);
+
+		expect(response.ok).toBe(true);
+		expect(response.message).toEqual(latestMessage);
+		// The doomed in-place send is skipped entirely; the message is delivered as the resumed
+		// turn, and the task's own persisted provider/model drive the relaunch.
+		expect(clineTaskSessionService.sendTaskSessionInput).not.toHaveBeenCalled();
+		expect(clineTaskSessionService.startTaskSession).toHaveBeenCalledWith({
+			taskId: "task-1",
+			cwd: "/tmp/worktree",
+			prompt: "please continue",
+			images: undefined,
+			resumeFromPersistence: true,
+			providerId: "openrouter",
+			modelId: "openrouter/auto",
+			mode: undefined,
+			apiKey: "sk-or-test",
+			baseUrl: "https://openrouter.ai/api/v1",
+			reasoningEffort: undefined,
+		});
+	});
+
+	it("falls through to the in-place path when a stalled chat session has no persisted launch config", async () => {
+		const clineTaskSessionService = createClineTaskSessionServiceMock();
+		clineTaskSessionService.canResumeTaskSessionInPlace.mockReturnValue(false);
+		clineTaskSessionService.readPersistedTaskLaunchInfo.mockResolvedValue(null);
+		clineTaskSessionService.sendTaskSessionInput.mockResolvedValue(null);
+		clineTaskSessionService.rebindPersistedTaskSession.mockResolvedValue(null);
+
+		const api = createTestRuntimeApi({
+			getActiveWorkspaceId: vi.fn(() => "workspace-1"),
+			loadScopedRuntimeConfig: vi.fn(async () => createRuntimeConfigState()),
+			setActiveRuntimeConfig: vi.fn(),
+			getScopedTerminalManager: vi.fn(async () => ({}) as never),
+			getScopedClineTaskSessionService: vi.fn(async () => clineTaskSessionService as never),
+			resolveInteractiveShellCommand: vi.fn(),
+			runCommand: vi.fn(),
+		});
+
+		const response = await api.sendTaskChatMessage(
+			{ workspaceId: "workspace-1", workspacePath: "/tmp/repo" },
+			{ taskId: "task-1", text: "please continue" },
+		);
+
+		expect(response.ok).toBe(false);
+		expect(response.error).toBe("Task chat session is not running.");
+		expect(clineTaskSessionService.startTaskSession).not.toHaveBeenCalled();
+		expect(clineTaskSessionService.sendTaskSessionInput).toHaveBeenCalledWith(
+			"task-1",
+			"please continue",
+			undefined,
+			undefined,
+		);
 	});
 
 	it("auto-starts home chat sessions when the first message is sent", async () => {

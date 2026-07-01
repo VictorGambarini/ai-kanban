@@ -1108,6 +1108,83 @@ describe("InMemoryClineTaskSessionService", () => {
 		});
 	});
 
+	it("reports the persisted launch identity and in-place resumability across a restart", async () => {
+		const { service, runtime } = createTrackedService();
+		runtime.readPersistedTaskSessionMock.mockResolvedValue({
+			record: {
+				sessionId: "task-1-persisted",
+				source: "core" as ClinePersistedTaskSessionSnapshot["record"]["source"],
+				status: "completed",
+				startedAt: "2026-03-17T10:00:00.000Z",
+				updatedAt: "2026-03-17T10:05:00.000Z",
+				interactive: true,
+				provider: "openrouter",
+				model: "openrouter/auto",
+				cwd: "task-1-persisted-cwd",
+				workspaceRoot: "/tmp/workspace-root",
+				enableTools: true,
+				enableSpawn: false,
+				enableTeams: false,
+				isSubagent: false,
+			},
+			messages: [],
+		});
+
+		// A fresh runtime (post-restart) has neither a live session nor a cached launch config, so
+		// the task cannot be resumed in place — the caller must relaunch from the persisted record.
+		expect(service.canResumeTaskSessionInPlace("task-1")).toBe(false);
+		expect(await service.readPersistedTaskLaunchInfo("task-1")).toEqual({
+			providerId: "openrouter",
+			modelId: "openrouter/auto",
+			cwd: "task-1-persisted-cwd",
+		});
+
+		// Once a session has actually started, an in-place send is fine and no relaunch is needed.
+		await service.startTaskSession({
+			taskId: "task-1",
+			cwd: "/tmp/worktree",
+			prompt: "Initial prompt",
+		});
+		await waitForTaskSessionId(runtime, "task-1");
+		expect(service.canResumeTaskSessionInPlace("task-1")).toBe(true);
+	});
+
+	it("falls back to the persisted workspace root when the session record has no cwd", async () => {
+		const { service, runtime } = createTrackedService();
+		runtime.readPersistedTaskSessionMock.mockResolvedValue({
+			record: {
+				sessionId: "task-1-persisted",
+				source: "core" as ClinePersistedTaskSessionSnapshot["record"]["source"],
+				status: "completed",
+				startedAt: "2026-03-17T10:00:00.000Z",
+				updatedAt: "2026-03-17T10:05:00.000Z",
+				interactive: true,
+				provider: "anthropic",
+				model: "claude-sonnet-4-6",
+				cwd: "",
+				workspaceRoot: "/tmp/workspace-root",
+				enableTools: true,
+				enableSpawn: false,
+				enableTeams: false,
+				isSubagent: false,
+			},
+			messages: [],
+		});
+
+		expect(await service.readPersistedTaskLaunchInfo("task-1")).toEqual({
+			providerId: "anthropic",
+			modelId: "claude-sonnet-4-6",
+			cwd: "/tmp/workspace-root",
+		});
+	});
+
+	it("returns no persisted launch info when the task has no SDK session on disk", async () => {
+		const { service, runtime } = createTrackedService();
+		runtime.readPersistedTaskSessionMock.mockResolvedValue(null);
+
+		expect(await service.readPersistedTaskLaunchInfo("task-1")).toBeNull();
+	});
+
 	it("rebinds a persisted session on send when no in-memory entry exists after a restart", async () => {
 		const { service, runtime } = createTrackedService();
 		runtime.readPersistedTaskSessionMock.mockResolvedValue({

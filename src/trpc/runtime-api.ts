@@ -701,6 +701,46 @@ export function createRuntimeApi(deps: CreateRuntimeApiDependencies): RuntimeTrp
 					};
 				}
 				const requestedMode = body.mode;
+
+				// After a runtime restart the in-memory launch config is gone, so an in-place send
+				// would fail to reach the SDK ("No previous Cline session config is available"). When
+				// the runtime can no longer deliver in place, relaunch from the persisted session
+				// (history + re-resolved secrets) and deliver this message as the resumed turn. The
+				// persisted record carries the task's own provider/model so the resume stays faithful.
+				if (
+					!isHomeAgentSessionId(body.taskId) &&
+					!clineTaskSessionService.canResumeTaskSessionInPlace(body.taskId)
+				) {
+					const launchInfo = await clineTaskSessionService
+						.readPersistedTaskLaunchInfo(body.taskId)
+						.catch(() => null);
+					if (launchInfo) {
+						const clineLaunchConfig = await clineProviderService.resolveLaunchConfig({
+							providerIdOverride: launchInfo.providerId || undefined,
+							modelIdOverride: launchInfo.modelId || undefined,
+						});
+						const resumeSummary = await clineTaskSessionService.startTaskSession({
+							taskId: body.taskId,
+							cwd: launchInfo.cwd || workspaceScope.workspacePath,
+							prompt: body.text,
+							images: body.images,
+							resumeFromPersistence: true,
+							providerId: clineLaunchConfig.providerId,
+							modelId: clineLaunchConfig.modelId,
+							mode: requestedMode,
+							apiKey: clineLaunchConfig.apiKey,
+							baseUrl: clineLaunchConfig.baseUrl,
+							reasoningEffort: clineLaunchConfig.reasoningEffort,
+						});
+						const latestResumeMessage = clineTaskSessionService.listMessages(body.taskId).at(-1) ?? null;
+						return {
+							ok: true,
+							summary: resumeSummary,
+							message: latestResumeMessage,
+						};
+					}
+				}
+
 				let summary = await clineTaskSessionService.sendTaskSessionInput(
 					body.taskId,
 					body.text,
