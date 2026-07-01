@@ -47,6 +47,12 @@ interface StartTaskSessionResult {
 
 interface StartTaskSessionOptions {
 	resumeFromTrash?: boolean;
+	// Resume an already-started task's agent from its on-disk session without
+	// re-running the prompt (empty kickoff + the agent's own --continue/--resume).
+	// Same wire behavior as resumeFromTrash, but not an actual trash restore — used
+	// to fully re-spawn a task whose in-memory launch recipe was lost (e.g. after a
+	// runtime restart), so it does not fire the trash-restore telemetry.
+	resume?: boolean;
 }
 
 export interface UseTaskSessionsResult {
@@ -152,7 +158,10 @@ export function useTaskSessions({ currentProjectId, setSessions }: UseTaskSessio
 				return { ok: false, message: "No project selected." };
 			}
 			try {
-				const kickoffPrompt = options?.resumeFromTrash ? "" : task.prompt.trim();
+				// A resume (trash restore or an in-place agent re-spawn) replays the agent's
+				// own persisted session instead of re-running the prompt.
+				const isResume = options?.resumeFromTrash === true || options?.resume === true;
+				const kickoffPrompt = isResume ? "" : task.prompt.trim();
 				const trpcClient = getRuntimeTrpcClient(currentProjectId);
 				const geometry =
 					getTerminalGeometry(task.id) ?? estimateTaskSessionGeometry(window.innerWidth, window.innerHeight);
@@ -161,9 +170,9 @@ export function useTaskSessions({ currentProjectId, setSessions }: UseTaskSessio
 					taskId: task.id,
 					prompt: kickoffPrompt,
 					taskTitle: task.title,
-					images: options?.resumeFromTrash ? undefined : task.images,
-					startInPlanMode: options?.resumeFromTrash ? undefined : task.startInPlanMode,
-					resumeFromTrash: options?.resumeFromTrash,
+					images: isResume ? undefined : task.images,
+					startInPlanMode: isResume ? undefined : task.startInPlanMode,
+					resumeFromTrash: isResume,
 					baseRef: task.baseRef,
 					cols: geometry.cols,
 					rows: geometry.rows,
