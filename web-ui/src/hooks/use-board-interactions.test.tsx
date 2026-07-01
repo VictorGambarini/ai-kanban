@@ -687,7 +687,7 @@ describe("useBoardInteractions", () => {
 		expect(restoredTask?.agentId).toBe("codex");
 	});
 
-	it("ignores card selection requests for trashed tasks", async () => {
+	it("allows card selection requests for trashed (done) tasks", async () => {
 		let latestSnapshot: HookSnapshot | null = null;
 
 		useProgrammaticCardMovesMock.mockReturnValue({
@@ -744,7 +744,7 @@ describe("useBoardInteractions", () => {
 			latestSnapshot!.handleCardSelect("task-trash");
 		});
 
-		expect(setSelectedTaskId).not.toHaveBeenCalled();
+		expect(setSelectedTaskId).toHaveBeenCalledWith("task-trash");
 	});
 
 	it("does not auto-trash a session that is already interrupted on initial hydration", async () => {

@@ -212,6 +212,41 @@ describe("BoardCard", () => {
 		expect(trashButton?.querySelector("svg.animate-spin")).toBeTruthy();
 	});
 
+	it("fires onClick for a done (trash) card but still blocks dependency-link initiation", async () => {
+		const onClick = vi.fn();
+		const onDependencyPointerDown = vi.fn();
+
+		await act(async () => {
+			root.render(
+				<TooltipProvider>
+					<BoardCard
+						card={createCard({ id: "trash-task-1" })}
+						index={0}
+						columnId="trash"
+						onClick={onClick}
+						onDependencyPointerDown={onDependencyPointerDown}
+					/>
+				</TooltipProvider>,
+			);
+		});
+
+		const shell = container.querySelector(".kb-board-card-shell");
+		expect(shell).toBeInstanceOf(HTMLElement);
+
+		await act(async () => {
+			shell?.dispatchEvent(new MouseEvent("mousedown", { bubbles: true }));
+			shell?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+		});
+
+		expect(onClick).toHaveBeenCalledTimes(1);
+
+		await act(async () => {
+			shell?.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, metaKey: true }));
+		});
+
+		expect(onDependencyPointerDown).not.toHaveBeenCalled();
+	});
+
 	it("shows inline see more and less controls for long descriptions", async () => {
 		const description =
 			"Alpha beta gamma delta epsilon zeta eta theta iota kappa lambda mu nu xi omicron pi rho sigma tau final hidden segment";
