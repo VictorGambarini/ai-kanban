@@ -7,8 +7,28 @@ import type {
 	RuntimeWorkspaceFileStatus,
 } from "../core/api-contract";
 import { getGitStdout } from "./git-utils";
+import { ensureSkillGitExcludes } from "./skill-git-exclude";
 
 const WORKSPACE_CHANGES_CACHE_MAX_ENTRIES = 128;
+
+// Kanban injects skill files into `.agents/skills/`, `.claude/skills/`, etc. and relies on
+// the repo's `.git/info/exclude` (written by ensureSkillGitExcludes) to keep those untracked
+// copies out of the diff. That block is only written when skills are installed/injected, so a
+// project opened before any skill flow ran — or one where a skill was dropped in by hand — would
+// surface the whole skill tree as a giant untracked diff. Ensuring the excludes here, right
+// before untracked files are enumerated, closes that gap for every project the moment its diff is
+// viewed. Tracked once per repo root so the polling hot path doesn't re-read the exclude file.
+const skillExcludesEnsuredRepoRoots = new Set<string>();
+
+async function ensureSkillExcludesForRepoOnce(repoRoot: string): Promise<void> {
+	if (skillExcludesEnsuredRepoRoots.has(repoRoot)) {
+		return;
+	}
+	skillExcludesEnsuredRepoRoots.add(repoRoot);
+	// Best effort: ensureSkillGitExcludes already swallows its own errors, but never let an
+	// exclude write failure block change computation.
+	await ensureSkillGitExcludes(repoRoot).catch(() => {});
+}
 
 interface WorkspaceChangesCacheEntry {
 	stateKey: string;
@@ -368,6 +388,7 @@ export async function getWorkspaceChanges(cwd: string): Promise<RuntimeWorkspace
 	if (!repoRoot) {
 		throw new Error("Could not resolve git repository root.");
 	}
+	await ensureSkillExcludesForRepoOnce(repoRoot);
 
 	const [trackedChangesOutput, untrackedOutput, headCommitOutput] = await Promise.all([
 		getGitStdout(["diff", "--name-status", "HEAD", "--"], repoRoot),
@@ -459,6 +480,7 @@ export async function getWorkspaceChangesFromRef(input: ChangesFromRefInput): Pr
 	if (!repoRoot) {
 		throw new Error("Could not resolve git repository root.");
 	}
+	await ensureSkillExcludesForRepoOnce(repoRoot);
 
 	const [trackedChangesOutput, untrackedOutput] = await Promise.all([
 		getGitStdout(["diff", "--name-status", "--find-renames", input.fromRef, "--"], repoRoot),
