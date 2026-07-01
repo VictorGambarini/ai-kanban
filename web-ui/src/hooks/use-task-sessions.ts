@@ -160,7 +160,10 @@ export function useTaskSessions({ currentProjectId, setSessions }: UseTaskSessio
 			try {
 				// A resume (trash restore or an in-place agent re-spawn) replays the agent's
 				// own persisted session instead of re-running the prompt.
-				const isResume = options?.resumeFromTrash === true || options?.resume === true;
+				// Send the flag only when actually resuming; keep it undefined otherwise so a
+				// normal start's wire payload is unchanged (the server treats false/undefined
+				// the same, but staying undefined avoids a spurious payload diff).
+				const isResume = options?.resumeFromTrash === true || options?.resume === true ? true : undefined;
 				const kickoffPrompt = isResume ? "" : task.prompt.trim();
 				const trpcClient = getRuntimeTrpcClient(currentProjectId);
 				const geometry =
