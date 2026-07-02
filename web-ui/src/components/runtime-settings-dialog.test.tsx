@@ -148,6 +148,20 @@ vi.mock("@/runtime/use-runtime-config", () => ({
 
 vi.mock("@/runtime/runtime-config-query", () => ({
 	openFileOnHost: vi.fn(async () => undefined),
+	loadClaudeStatusline: vi.fn(async () => ({
+		scriptContent: "",
+		enabled: false,
+		scriptPath: "",
+		settingsPath: "",
+		settingsParseError: null,
+	})),
+	saveClaudeStatusline: vi.fn(async () => ({
+		scriptContent: "",
+		enabled: false,
+		scriptPath: "",
+		settingsPath: "",
+		settingsParseError: null,
+	})),
 }));
 
 vi.mock("@/utils/notification-permission", () => ({
