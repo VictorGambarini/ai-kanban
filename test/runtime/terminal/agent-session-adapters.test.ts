@@ -258,6 +258,24 @@ describe("prepareAgentLaunch hook strategies", () => {
 		expect(plugin).toContain('currentState = "idle"');
 	});
 
+	it("enables OpenCode experimental plan mode via env and CLI flag", async () => {
+		setupTempHome();
+		const launch = await prepareAgentLaunch({
+			taskId: "task-opencode-plan",
+			agentId: "opencode",
+			binary: "opencode",
+			args: [],
+			cwd: "/tmp",
+			prompt: "Audit the deployment pipeline",
+			startInPlanMode: true,
+			workspaceId: "workspace-1",
+		});
+
+		expect(launch.env.OPENCODE_EXPERIMENTAL_PLAN_MODE).toBe("true");
+		expect(launch.args).toContain("--agent");
+		expect(launch.args[launch.args.indexOf("--agent") + 1]).toBe("plan");
+	});
+
 	it("loads OpenCode preferred model from LOCALAPPDATA state and auth paths", async () => {
 		const homePath = setupTempHome();
 		const localAppDataPath = join(homePath, "AppData", "Local");
@@ -661,6 +679,17 @@ describe("prepareAgentLaunch hook strategies", () => {
 		});
 		expect(codexLaunch.args).toContain("--dangerously-bypass-approvals-and-sandbox");
 
+		const opencodeLaunch = await prepareAgentLaunch({
+			taskId: "task-opencode-auto",
+			agentId: "opencode",
+			binary: "opencode",
+			args: [],
+			autonomousModeEnabled: true,
+			cwd: "/tmp",
+			prompt: "",
+		});
+		expect(opencodeLaunch.args).toContain("--auto");
+
 		const geminiLaunch = await prepareAgentLaunch({
 			taskId: "task-gemini-auto",
 			agentId: "gemini",
@@ -719,6 +748,17 @@ describe("prepareAgentLaunch hook strategies", () => {
 			prompt: "",
 		});
 		expect(codexLaunch.args).toContain("--dangerously-bypass-approvals-and-sandbox");
+
+		const opencodeLaunch = await prepareAgentLaunch({
+			taskId: "task-opencode-no-auto",
+			agentId: "opencode",
+			binary: "opencode",
+			args: ["--auto"],
+			autonomousModeEnabled: false,
+			cwd: "/tmp",
+			prompt: "",
+		});
+		expect(opencodeLaunch.args).toContain("--auto");
 
 		const geminiLaunch = await prepareAgentLaunch({
 			taskId: "task-gemini-no-auto",
