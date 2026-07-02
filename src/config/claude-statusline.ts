@@ -57,9 +57,22 @@ async function readClaudeSettingsFile(settingsPath: string): Promise<ClaudeSetti
 	}
 }
 
+function expandHomeDirTilde(path: string): string {
+	if (path === "~") {
+		return homedir();
+	}
+	if (path.startsWith("~/") || path.startsWith("~\\")) {
+		return join(homedir(), path.slice(2));
+	}
+	return path;
+}
+
 function isStatusLineActiveForScript(settings: Record<string, unknown> | null, scriptPath: string): boolean {
 	const statusLine = asPlainObject(settings?.statusLine);
-	return statusLine?.type === "command" && statusLine.command === scriptPath;
+	if (statusLine?.type !== "command" || typeof statusLine.command !== "string") {
+		return false;
+	}
+	return expandHomeDirTilde(statusLine.command) === scriptPath;
 }
 
 export async function loadClaudeStatuslineConfig(): Promise<RuntimeClaudeStatuslineConfig> {

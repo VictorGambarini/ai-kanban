@@ -132,6 +132,40 @@ describe.sequential("claude-statusline", () => {
 		}
 	});
 
+	// Regression: /qa found this on 2026-07-02 — Anthropic's own Claude Code docs
+	// example uses a tilde path ("~/.claude/statusline.sh") for statusLine.command,
+	// so a manually-configured tilde path pointing at Kanban's script must still
+	// read back as enabled, and disabling it must still remove it.
+	it("recognizes a tilde-prefixed statusLine.command as active for Kanban's script", async () => {
+		const temp = createTempDir();
+		try {
+			await withTemporaryHome(temp.path, async () => {
+				const { mkdirSync, writeFileSync } = await import("node:fs");
+				const claudeDir = join(temp.path, ".claude");
+				mkdirSync(claudeDir, { recursive: true });
+				writeFileSync(join(claudeDir, "statusline.py"), "#!/usr/bin/env python3\n", { mode: 0o755 });
+				writeFileSync(
+					join(claudeDir, "settings.json"),
+					JSON.stringify({ statusLine: { type: "command", command: "~/.claude/statusline.py" } }, null, 2),
+					"utf8",
+				);
+
+				const loaded = await loadClaudeStatuslineConfig();
+				expect(loaded.enabled).toBe(true);
+
+				const disabled = await saveClaudeStatuslineConfig({
+					scriptContent: "#!/usr/bin/env python3\n",
+					enabled: false,
+				});
+				expect(disabled.enabled).toBe(false);
+				const settings = JSON.parse(readFileSync(disabled.settingsPath, "utf8")) as Record<string, unknown>;
+				expect(settings.statusLine).toBeUndefined();
+			});
+		} finally {
+			temp.cleanup();
+		}
+	});
+
 	it("throws when enabling with empty script content", async () => {
 		const temp = createTempDir();
 		try {
