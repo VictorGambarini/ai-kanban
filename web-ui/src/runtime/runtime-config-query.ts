@@ -52,6 +52,7 @@ export async function saveRuntimeConfig(
 		readyForReviewNotificationsEnabled?: boolean;
 		commitPromptTemplate?: string;
 		openPrPromptTemplate?: string;
+		cliAgentModelDefaults?: Partial<Record<RuntimeAgentId, string>>;
 	},
 ): Promise<RuntimeConfigResponse> {
 	const trpcClient = getRuntimeTrpcClient(workspaceId);

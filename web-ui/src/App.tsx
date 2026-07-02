@@ -360,6 +360,8 @@ export default function App(): ReactElement {
 		createTaskBranchOptions,
 		defaultTaskBranchRef,
 		selectedAgentId: runtimeProjectConfig?.selectedAgentId ?? null,
+		runtimeConfig: runtimeProjectConfig ?? null,
+		refreshRuntimeConfig: refreshRuntimeProjectConfig,
 		setSelectedTaskId,
 		queueTaskStartAfterEdit,
 	});
@@ -848,6 +850,7 @@ export default function App(): ReactElement {
 			defaultProviderId={defaultTaskClineProviderId}
 			defaultModelId={runtimeProjectConfig?.clineProviderSettings?.modelId ?? null}
 			defaultReasoningEffort={runtimeProjectConfig?.clineProviderSettings?.reasoningEffort ?? null}
+			cliModelDefaults={runtimeProjectConfig?.cliAgentModelDefaults}
 			mode="edit"
 			taskId={editingTaskId}
 			idPrefix={`inline-edit-task-${editingTaskId}`}
@@ -1205,6 +1208,7 @@ export default function App(): ReactElement {
 					defaultProviderId={defaultTaskClineProviderId}
 					defaultModelId={runtimeProjectConfig?.clineProviderSettings?.modelId ?? null}
 					defaultReasoningEffort={runtimeProjectConfig?.clineProviderSettings?.reasoningEffort ?? null}
+					cliModelDefaults={runtimeProjectConfig?.cliAgentModelDefaults}
 				/>
 				<ClearTrashDialog
 					open={isClearTrashDialogOpen}

@@ -415,6 +415,47 @@ describe.sequential("runtime-config auto agent selection", () => {
 		}
 	});
 
+	it("persists a per-agent cliModel default and preserves it across unrelated updates", async () => {
+		const { path: tempHome, cleanup: cleanupHome } = createTempDir("kanban-home-runtime-config-cli-model-");
+		const { path: tempProject, cleanup: cleanupProject } = createTempDir("kanban-project-runtime-config-cli-model-");
+
+		try {
+			await withTemporaryEnv({ home: tempHome }, async () => {
+				await loadRuntimeConfig(tempProject);
+
+				const updated = await updateRuntimeConfig(tempProject, {
+					cliAgentModelDefaults: { codex: "gpt-5.5" },
+				});
+				expect(updated.cliAgentModelDefaults).toEqual({ codex: "gpt-5.5" });
+
+				const globalPayload = JSON.parse(
+					readFileSync(join(tempHome, ".cline", "kanban", "config.json"), "utf8"),
+				) as {
+					cliAgentModelDefaults?: Record<string, string>;
+				};
+				expect(globalPayload.cliAgentModelDefaults).toEqual({ codex: "gpt-5.5" });
+
+				// An unrelated update must not drop the previously stored default.
+				const secondUpdate = await updateRuntimeConfig(tempProject, {
+					selectedAgentId: "codex",
+				});
+				expect(secondUpdate.cliAgentModelDefaults).toEqual({ codex: "gpt-5.5" });
+
+				// Adding a default for a second agent must not clobber the first.
+				const thirdUpdate = await updateRuntimeConfig(tempProject, {
+					cliAgentModelDefaults: { codex: "gpt-5.5", claude: "sonnet" },
+				});
+				expect(thirdUpdate.cliAgentModelDefaults).toEqual({ codex: "gpt-5.5", claude: "sonnet" });
+
+				const reloaded = await loadRuntimeConfig(tempProject);
+				expect(reloaded.cliAgentModelDefaults).toEqual({ codex: "gpt-5.5", claude: "sonnet" });
+			});
+		} finally {
+			cleanupProject();
+			cleanupHome();
+		}
+	});
+
 	it("persists autonomous mode when disabled", async () => {
 		const { path: tempHome, cleanup: cleanupHome } = createTempDir("kanban-home-runtime-config-autonomous-disabled-");
 		const { path: tempProject, cleanup: cleanupProject } = createTempDir(

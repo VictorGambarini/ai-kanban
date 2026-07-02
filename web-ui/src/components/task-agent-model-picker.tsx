@@ -238,10 +238,13 @@ function CliModelPicker({
 	agentId,
 	cliModel,
 	onCliModelChange,
+	cliModelDefaults,
 }: {
 	agentId: RuntimeAgentId;
 	cliModel: string | undefined;
 	onCliModelChange: (value: string | undefined) => void;
+	/** Last-used model per CLI agent, remembered from a prior task's explicit override. */
+	cliModelDefaults?: Partial<Record<RuntimeAgentId, string>>;
 }): ReactElement | null {
 	const entry = getRuntimeAgentCatalogEntry(agentId);
 	const models = entry?.models ?? [];
@@ -255,6 +258,10 @@ function CliModelPicker({
 	}
 
 	const selectValue = isCustom ? CLI_MODEL_CUSTOM_VALUE : (cliModel ?? "");
+	const defaultModelId = cliModelDefaults?.[agentId];
+	const defaultOptionLabel = defaultModelId
+		? `Default (${models.find((model) => model.value === defaultModelId)?.label ?? defaultModelId})`
+		: "Default";
 
 	return (
 		<div className="w-full sm:w-1/2 min-w-0">
@@ -273,7 +280,7 @@ function CliModelPicker({
 					onCliModelChange(value || undefined);
 				}}
 			>
-				<option value="">Default</option>
+				<option value="">{defaultOptionLabel}</option>
 				{models.map((model) => (
 					<option key={model.value} value={model.value}>
 						{model.label}
@@ -321,12 +328,15 @@ export function TaskAgentModelPicker({
 	defaultProviderId,
 	defaultReasoningEffort,
 	providerDefaultModels,
+	cliModelDefaults,
 }: {
 	agentId: RuntimeAgentId | undefined;
 	onAgentIdChange: (value: RuntimeAgentId | undefined) => void;
 	/** Per-task CLI model override (passed to the agent's `--model` flag). */
 	cliModel?: string | undefined;
 	onCliModelChange?: (value: string | undefined) => void;
+	/** Last-used model per CLI agent, remembered from a prior task's explicit override. */
+	cliModelDefaults?: Partial<Record<RuntimeAgentId, string>>;
 	clineSettings?: RuntimeTaskClineSettings | undefined;
 	onClineSettingsChange?: (value: RuntimeTaskClineSettings | undefined) => void;
 	skillNames?: string[];
@@ -584,6 +594,7 @@ export function TaskAgentModelPicker({
 								agentId={effectiveAgentId}
 								cliModel={cliModel}
 								onCliModelChange={onCliModelChange}
+								cliModelDefaults={cliModelDefaults}
 							/>
 						) : null}
 						{showClineProviderPicker ? (
