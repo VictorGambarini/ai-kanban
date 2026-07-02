@@ -34,10 +34,12 @@ export const RUNTIME_AGENT_CATALOG: RuntimeAgentCatalogEntry[] = [
 		autonomousArgs: ["--dangerously-skip-permissions"],
 		installUrl: "https://docs.anthropic.com/en/docs/claude-code/quickstart",
 		modelFlag: "--model",
+		// Mirrors Claude Code's own `/model` picker (aliases accepted by `--model`).
 		models: [
-			{ value: "opus", label: "Opus" },
-			{ value: "sonnet", label: "Sonnet" },
-			{ value: "haiku", label: "Haiku" },
+			{ value: "sonnet", label: "Sonnet 5" },
+			{ value: "fable", label: "Fable 5" },
+			{ value: "opus", label: "Opus 4.8" },
+			{ value: "haiku", label: "Haiku 4.5" },
 		],
 	},
 	{
@@ -48,9 +50,14 @@ export const RUNTIME_AGENT_CATALOG: RuntimeAgentCatalogEntry[] = [
 		autonomousArgs: ["--dangerously-bypass-approvals-and-sandbox"],
 		installUrl: "https://github.com/openai/codex",
 		modelFlag: "--model",
+		// Mirrors Codex's own "Select Model and Effort" picker (verified these are the exact
+		// values accepted by `--model`/`-m`).
 		models: [
-			{ value: "gpt-5-codex", label: "GPT-5 Codex" },
-			{ value: "gpt-5", label: "GPT-5" },
+			{ value: "gpt-5.5", label: "GPT-5.5" },
+			{ value: "gpt-5.4", label: "GPT-5.4" },
+			{ value: "gpt-5.4-mini", label: "GPT-5.4 Mini" },
+			{ value: "gpt-5.3-codex", label: "GPT-5.3 Codex" },
+			{ value: "gpt-5.2", label: "GPT-5.2" },
 		],
 	},
 	{
