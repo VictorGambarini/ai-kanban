@@ -573,8 +573,20 @@ class PersistentTerminal {
 		await this.enqueueTerminalWrite(snapshot);
 	}
 
+	// Routed through terminalWriteQueue so a fit/resize can never land in the middle of
+	// an in-flight terminal.write() (e.g. a large applyRestore() scrollback snapshot).
+	// xterm.js processes big writes across multiple frames, and resizing mid-write
+	// reflows only the not-yet-processed portion of the buffer to the new column
+	// count, leaving part of the scrollback wrapped at the old width.
 	private requestResize(): void {
 		if (!this.visibleContainer) {
+			return;
+		}
+		this.terminalWriteQueue = this.terminalWriteQueue.catch(() => undefined).then(() => this.performResize());
+	}
+
+	private performResize(): void {
+		if (this.disposed || !this.visibleContainer) {
 			return;
 		}
 		this.fitAddon.fit();

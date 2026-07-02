@@ -47,6 +47,7 @@ function rawDataToBuffer(data: RawData): Buffer {
 
 class FakeTerminalManager implements TerminalSessionService {
 	private readonly listenersByTaskId = new Map<string, Set<TerminalSessionListener>>();
+	private readonly sequenceByTaskId = new Map<string, number>();
 
 	attach(taskId: string, listener: TerminalSessionListener): (() => void) | null {
 		const listeners = this.listenersByTaskId.get(taskId) ?? new Set<TerminalSessionListener>();
@@ -66,6 +67,7 @@ class FakeTerminalManager implements TerminalSessionService {
 			snapshot: "",
 			cols: 80,
 			rows: 24,
+			sequence: 0,
 		}),
 	);
 	recoverStaleSession = vi.fn(() => createSummary());
@@ -75,7 +77,15 @@ class FakeTerminalManager implements TerminalSessionService {
 	resumeOutput = vi.fn(() => true);
 	stopTaskSession = vi.fn(() => createSummary());
 
+	getOutputSequence(taskId: string): number {
+		return this.sequenceByTaskId.get(taskId) ?? 0;
+	}
+
+	// Mirrors session-manager.ts's PTY onData order: the chunk counter advances
+	// before listeners are notified, so a listener reading getOutputSequence()
+	// synchronously from inside onOutput sees the sequence for that exact chunk.
 	emitOutput(taskId: string, data: string): void {
+		this.sequenceByTaskId.set(taskId, (this.sequenceByTaskId.get(taskId) ?? 0) + 1);
 		for (const listener of this.listenersByTaskId.get(taskId) ?? []) {
 			listener.onOutput?.(Buffer.from(data, "utf8"));
 		}
@@ -391,6 +401,48 @@ describe("createTerminalWebSocketBridge", () => {
 				resolve();
 			});
 		});
+	});
+
+	it("does not replay output already baked into the restore snapshot", async () => {
+		const ioUrl = `${runtimeUrl}/api/terminal/io?taskId=${TASK_ID}&workspaceId=${WORKSPACE_ID}&clientId=client-a`;
+		const controlUrl = `${runtimeUrl}/api/terminal/control?taskId=${TASK_ID}&workspaceId=${WORKSPACE_ID}&clientId=client-a`;
+
+		// Hold the restore snapshot open so we can emit output while the viewer is
+		// registered but the snapshot has not resolved yet — this is exactly the race
+		// window between viewer registration and snapshot capture on reconnect.
+		let resolveSnapshot: (snapshot: TerminalRestoreSnapshot) => void = () => {};
+		terminalManager.getRestoreSnapshot.mockReturnValueOnce(
+			new Promise<TerminalRestoreSnapshot>((resolve) => {
+				resolveSnapshot = resolve;
+			}),
+		);
+
+		const ioSocket = await openQueuedWebSocket(ioUrl);
+		const controlSocket = await openQueuedWebSocket(controlUrl);
+
+		// Let the control connection handler register the viewer and attach the
+		// output listener before the snapshot is captured.
+		await new Promise((resolve) => setTimeout(resolve, 20));
+
+		// Simulate a PTY chunk arriving in the race window: it lands in the mirror
+		// (and thus the eventual snapshot) before the snapshot is actually captured.
+		terminalManager.emitOutput(TASK_ID, "hello");
+		const sequenceAfterHello = terminalManager.getOutputSequence(TASK_ID);
+
+		resolveSnapshot({ snapshot: "hello", cols: 80, rows: 24, sequence: sequenceAfterHello });
+
+		await waitForControlMessage(
+			controlSocket,
+			(message) => message.type === "restore" && message.snapshot === "hello",
+		);
+		controlSocket.socket.send(JSON.stringify({ type: "restore_complete" }));
+
+		terminalManager.emitOutput(TASK_ID, "world");
+
+		await expect(waitForIoMessage(ioSocket)).resolves.toEqual(Buffer.from("world", "utf8"));
+
+		await closeSocket(ioSocket.socket);
+		await closeSocket(controlSocket.socket);
 	});
 
 	it("broadcasts one PTY session to multiple viewers", async () => {
