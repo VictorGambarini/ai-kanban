@@ -1,4 +1,4 @@
-## npx kanban (Research Preview)
+## npx @victorgambarini/ai-kanban (Research Preview)
 
 <p align="center">
   <img src="https://github.com/user-attachments/assets/2aa3dcc7-94e3-4076-bcfe-6d0272007cfe" width="100%" />
@@ -16,16 +16,16 @@ A replacement for your IDE better suited for running many agents in parallel and
 <table>
 <tbody>
 <td align="center">
-<a href="https://www.npmjs.com/package/kanban" target="_blank">NPM</a>
+<a href="https://www.npmjs.com/package/@victorgambarini/ai-kanban" target="_blank">NPM</a>
 </td>
 <td align="center">
-<a href="https://github.com/cline/kanban" target="_blank">GitHub</a>
+<a href="https://github.com/VictorGambarini/ai-kanban" target="_blank">GitHub</a>
 </td>
 <td align="center">
-<a href="https://github.com/cline/kanban/issues" target="_blank">Issues</a>
+<a href="https://github.com/VictorGambarini/ai-kanban/issues" target="_blank">Issues</a>
 </td>
 <td align="center">
-<a href="https://github.com/cline/kanban/discussions/categories/feature-requests?discussions_q=is%3Aopen+category%3A%22Feature+Requests%22+sort%3Atop" target="_blank">Feature Requests</a>
+<a href="https://github.com/VictorGambarini/ai-kanban/discussions/categories/feature-requests?discussions_q=is%3Aopen+category%3A%22Feature+Requests%22+sort%3Atop" target="_blank">Feature Requests</a>
 </td>
 <td align="center">
 <a href="https://discord.gg/cline" target="_blank">Discord</a>
