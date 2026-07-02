@@ -72,11 +72,16 @@ export const RUNTIME_AGENT_CATALOG: RuntimeAgentCatalogEntry[] = [
 		autonomousArgs: [],
 		installUrl: "https://github.com/sst/opencode",
 		modelFlag: "--model",
+		// The OpenCode Zen models below are bundled and free on every OpenCode install
+		// (verified via `opencode models opencode`), so they work with zero setup. Models
+		// from other providers (Anthropic, OpenAI, Google, custom gateways, ...) require
+		// that provider to be configured first — use "Custom…" for those.
 		models: [
-			{ value: "anthropic/claude-sonnet-4-5", label: "Claude Sonnet 4.5" },
-			{ value: "openai/gpt-5-codex", label: "GPT-5 Codex" },
-			{ value: "google/gemini-2.5-pro", label: "Gemini 2.5 Pro" },
-			{ value: "opencode/big-pickle", label: "OpenCode Zen (Big Pickle)" },
+			{ value: "opencode/big-pickle", label: "Big Pickle (Free)" },
+			{ value: "opencode/north-mini-code-free", label: "North Mini Code (Free)" },
+			{ value: "opencode/nemotron-3-ultra-free", label: "Nemotron 3 Ultra (Free)" },
+			{ value: "opencode/deepseek-v4-flash-free", label: "DeepSeek V4 Flash (Free)" },
+			{ value: "opencode/mimo-v2.5-free", label: "MiMo V2.5 (Free)" },
 		],
 	},
 	{
