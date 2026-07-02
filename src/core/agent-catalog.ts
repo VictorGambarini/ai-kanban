@@ -66,7 +66,7 @@ export const RUNTIME_AGENT_CATALOG: RuntimeAgentCatalogEntry[] = [
 		label: "OpenCode",
 		binary: "opencode",
 		baseArgs: [],
-		autonomousArgs: [],
+		autonomousArgs: ["--auto"],
 		installUrl: "https://github.com/sst/opencode",
 	},
 	{
@@ -105,15 +105,14 @@ export const RUNTIME_AGENT_CATALOG: RuntimeAgentCatalogEntry[] = [
 	},
 ];
 
-// Temporarily keep launch support scoped to the core agent set.
-// Re-enable additional CLIs by uncommenting entries below when ready.
 export const RUNTIME_LAUNCH_SUPPORTED_AGENT_IDS: readonly RuntimeAgentId[] = [
 	"cline",
 	"claude",
 	"codex",
+	"opencode",
 	"droid",
 	"kiro",
-	// "opencode",
+	// Gemini remains gated pending a separate review.
 	// "gemini",
 ];
 

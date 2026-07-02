@@ -1118,6 +1118,10 @@ const opencodeAdapter: AgentSessionAdapter = {
 			args.push("--continue");
 		}
 
+		if (input.autonomousModeEnabled && !hasCliOption(args, "--auto")) {
+			args.push("--auto");
+		}
+
 		if (input.startInPlanMode) {
 			env.OPENCODE_EXPERIMENTAL_PLAN_MODE = "true";
 			if (!hasOpenCodeAgentArg(args)) {
