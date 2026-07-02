@@ -1369,3 +1369,18 @@ export const runtimeHookIngestResponseSchema = z.object({
 	error: z.string().optional(),
 });
 export type RuntimeHookIngestResponse = z.infer<typeof runtimeHookIngestResponseSchema>;
+
+export const runtimeClaudeStatuslineConfigSchema = z.object({
+	scriptPath: z.string(),
+	settingsPath: z.string(),
+	scriptContent: z.string(),
+	enabled: z.boolean(),
+	settingsParseError: z.string().nullable(),
+});
+export type RuntimeClaudeStatuslineConfig = z.infer<typeof runtimeClaudeStatuslineConfigSchema>;
+
+export const runtimeClaudeStatuslineSaveRequestSchema = z.object({
+	scriptContent: z.string(),
+	enabled: z.boolean(),
+});
+export type RuntimeClaudeStatuslineSaveRequest = z.infer<typeof runtimeClaudeStatuslineSaveRequestSchema>;

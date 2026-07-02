@@ -42,6 +42,7 @@ import { loadWorkspaceContextById } from "../state/workspace-state";
 import type { TerminalSessionManager } from "../terminal/session-manager";
 import { createTerminalWebSocketBridge } from "../terminal/ws-server";
 import { type RuntimeTrpcContext, type RuntimeTrpcWorkspaceScope, runtimeAppRouter } from "../trpc/app-router";
+import { createClaudeStatuslineApi } from "../trpc/claude-statusline-api";
 import { createHooksApi } from "../trpc/hooks-api";
 import { createHostsApi } from "../trpc/hosts-api";
 import { createProjectsApi } from "../trpc/projects-api";
@@ -254,6 +255,7 @@ export async function createRuntimeServer(deps: CreateRuntimeServerDependencies)
 				broadcastTaskReadyForReview: deps.runtimeStateHub.broadcastTaskReadyForReview,
 			}),
 			hostsApi: createHostsApi({ hostsManager }),
+			claudeStatuslineApi: createClaudeStatuslineApi(),
 		};
 	};
 

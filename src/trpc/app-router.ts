@@ -7,6 +7,8 @@ import { z } from "zod";
 import type {
 	RuntimeAgentEnvConfigResponse,
 	RuntimeAgentEnvSaveRequest,
+	RuntimeClaudeStatuslineConfig,
+	RuntimeClaudeStatuslineSaveRequest,
 	RuntimeClineAccountBalanceResponse,
 	RuntimeClineAccountOrganizationsResponse,
 	RuntimeClineAccountProfileResponse,
@@ -105,6 +107,8 @@ import type {
 import {
 	runtimeAgentEnvConfigResponseSchema,
 	runtimeAgentEnvSaveRequestSchema,
+	runtimeClaudeStatuslineConfigSchema,
+	runtimeClaudeStatuslineSaveRequestSchema,
 	runtimeClineAccountBalanceResponseSchema,
 	runtimeClineAccountOrganizationsResponseSchema,
 	runtimeClineAccountProfileResponseSchema,
@@ -427,6 +431,10 @@ export interface RuntimeTrpcContext {
 		connect: (input: { hostId: string }) => Promise<RemoteHostConnectionStatus | null>;
 		restart: (input: { hostId: string }) => Promise<RemoteHostConnectionStatus | null>;
 		disconnect: (input: { hostId: string }) => Promise<{ ok: boolean }>;
+	};
+	claudeStatuslineApi: {
+		load: () => Promise<RuntimeClaudeStatuslineConfig>;
+		save: (input: RuntimeClaudeStatuslineSaveRequest) => Promise<RuntimeClaudeStatuslineConfig>;
 	};
 }
 
@@ -865,6 +873,17 @@ export const runtimeAppRouter = t.router({
 			.output(z.object({ ok: z.boolean() }))
 			.mutation(async ({ ctx, input }) => {
 				return await ctx.hostsApi.disconnect(input);
+			}),
+	}),
+	claudeStatusline: t.router({
+		load: t.procedure.output(runtimeClaudeStatuslineConfigSchema).query(async ({ ctx }) => {
+			return await ctx.claudeStatuslineApi.load();
+		}),
+		save: t.procedure
+			.input(runtimeClaudeStatuslineSaveRequestSchema)
+			.output(runtimeClaudeStatuslineConfigSchema)
+			.mutation(async ({ ctx, input }) => {
+				return await ctx.claudeStatuslineApi.save(input);
 			}),
 	}),
 });

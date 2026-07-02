@@ -4,6 +4,8 @@
 import { getRuntimeTrpcClient } from "@/runtime/trpc-client";
 import type {
 	RuntimeAgentId,
+	RuntimeClaudeStatuslineConfig,
+	RuntimeClaudeStatuslineSaveRequest,
 	RuntimeClineAccountBalanceResponse,
 	RuntimeClineAccountOrganizationsResponse,
 	RuntimeClineAccountProfileResponse,
@@ -220,6 +222,19 @@ export async function resetRuntimeDebugState(workspaceId: string | null): Promis
 export async function openFileOnHost(workspaceId: string | null, filePath: string): Promise<void> {
 	const trpcClient = getRuntimeTrpcClient(workspaceId);
 	await trpcClient.runtime.openFile.mutate({ filePath });
+}
+
+export async function loadClaudeStatusline(workspaceId: string | null): Promise<RuntimeClaudeStatuslineConfig> {
+	const trpcClient = getRuntimeTrpcClient(workspaceId);
+	return await trpcClient.claudeStatusline.load.query();
+}
+
+export async function saveClaudeStatusline(
+	workspaceId: string | null,
+	input: RuntimeClaudeStatuslineSaveRequest,
+): Promise<RuntimeClaudeStatuslineConfig> {
+	const trpcClient = getRuntimeTrpcClient(workspaceId);
+	return await trpcClient.claudeStatusline.save.mutate(input);
 }
 
 export async function fetchClineAccountBalance(

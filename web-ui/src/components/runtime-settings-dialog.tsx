@@ -23,6 +23,7 @@ import {
 	Settings,
 	SlidersHorizontal,
 	Sparkles,
+	Terminal,
 	X,
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -42,6 +43,7 @@ import { Dialog, DialogFooter, DialogHeader } from "@/components/ui/dialog";
 import { NativeSelect } from "@/components/ui/native-select";
 import { WorkspaceSkillsPanel } from "@/components/workspace-skills-panel";
 import { TASK_GIT_BASE_REF_PROMPT_VARIABLE, type TaskGitAction } from "@/git-actions/build-task-git-action-prompt";
+import { useClaudeStatuslineController } from "@/hooks/use-claude-statusline-controller";
 import { useRuntimeSettingsClineController } from "@/hooks/use-runtime-settings-cline-controller";
 import { useRuntimeSettingsClineMcpController } from "@/hooks/use-runtime-settings-cline-mcp-controller";
 import { previewThemeId, readStoredThemeId, saveThemeId, THEME_GROUPS, THEMES, type ThemeId } from "@/hooks/use-theme";
@@ -109,6 +111,7 @@ const SETTINGS_AGENT_ORDER: readonly RuntimeAgentId[] = ["cline", "claude", "cod
 type SettingsNavId =
 	| "general"
 	| "cline"
+	| "claude-statusline"
 	| "git-prompts"
 	| "environment"
 	| "notifications"
@@ -121,9 +124,11 @@ const SETTINGS_NAV_ITEMS: ReadonlyArray<{
 	label: string;
 	icon: React.ReactNode;
 	clineOnly?: boolean;
+	claudeOnly?: boolean;
 }> = [
 	{ id: "general", label: "General", icon: <SlidersHorizontal size={16} /> },
 	{ id: "cline", label: "Cline", icon: <Bot size={16} />, clineOnly: true },
+	{ id: "claude-statusline", label: "Status Line", icon: <Terminal size={16} />, claudeOnly: true },
 	{ id: "git-prompts", label: "Git Prompts", icon: <GitCommit size={16} /> },
 	{ id: "environment", label: "Environment", icon: <KeyRound size={16} /> },
 	{ id: "notifications", label: "Notifications", icon: <Bell size={16} /> },
@@ -460,7 +465,11 @@ export function RuntimeSettingsDialog({
 	}, [agentAutonomousModeEnabled, config?.agents]);
 	const displayedAgents = useMemo(() => supportedAgents, [supportedAgents]);
 	const navItems = useMemo(
-		() => SETTINGS_NAV_ITEMS.filter((item) => !item.clineOnly || selectedAgentId === "cline"),
+		() =>
+			SETTINGS_NAV_ITEMS.filter(
+				(item) =>
+					(!item.clineOnly || selectedAgentId === "cline") && (!item.claudeOnly || selectedAgentId === "claude"),
+			),
 		[selectedAgentId],
 	);
 	const configuredAgentId = config?.selectedAgentId ?? null;
@@ -484,6 +493,11 @@ export function RuntimeSettingsDialog({
 		selectedAgentId,
 		liveAuthStatuses: liveMcpAuthStatuses,
 	});
+	const claudeStatusline = useClaudeStatuslineController({
+		open,
+		workspaceId,
+		selectedAgentId,
+	});
 	const hasUnsavedChanges = useMemo(() => {
 		if (!config) {
 			return false;
@@ -501,6 +515,9 @@ export function RuntimeSettingsDialog({
 			return true;
 		}
 		if (clineMcpSettings.hasUnsavedChanges) {
+			return true;
+		}
+		if (claudeStatusline.hasUnsavedChanges) {
 			return true;
 		}
 		if (draftThemeId !== initialThemeId) {
@@ -528,6 +545,7 @@ export function RuntimeSettingsDialog({
 		);
 	}, [
 		agentAutonomousModeEnabled,
+		claudeStatusline.hasUnsavedChanges,
 		clineMcpSettings.hasUnsavedChanges,
 		clineSettings.hasUnsavedChanges,
 		commitPromptTemplate,
@@ -625,6 +643,10 @@ export function RuntimeSettingsDialog({
 
 	useEffect(() => {
 		if (activeSection === "cline" && selectedAgentId !== "cline") {
+			setActiveSection("general");
+			return;
+		}
+		if (activeSection === "claude-statusline" && selectedAgentId !== "claude") {
 			setActiveSection("general");
 		}
 	}, [activeSection, selectedAgentId]);
@@ -729,6 +751,13 @@ export function RuntimeSettingsDialog({
 			const clineMcpSaveResult = await clineMcpSettings.saveMcpSettings();
 			if (!clineMcpSaveResult.ok) {
 				setSaveError(clineMcpSaveResult.message ?? "Could not save Cline MCP settings.");
+				return;
+			}
+		}
+		if (selectedAgentId === "claude" && claudeStatusline.hasUnsavedChanges) {
+			const claudeStatuslineSaveResult = await claudeStatusline.save();
+			if (!claudeStatuslineSaveResult.ok) {
+				setSaveError(claudeStatuslineSaveResult.message ?? "Could not save the Claude Code status line.");
 				return;
 			}
 		}
@@ -884,6 +913,78 @@ export function RuntimeSettingsDialog({
 									onError={setSaveError}
 									onSaved={handleClineSetupSaved}
 								/>
+							</div>
+						</>
+					) : null}
+
+					{/* ---- Claude Code Status Line ---- */}
+					{selectedAgentId === "claude" ? (
+						<>
+							<div data-settings-section="claude-statusline" />
+							<div className="sticky top-0 -mx-5 px-5 pt-4 pb-2 bg-surface-1 z-10">
+								<h2 className="flex items-center gap-2 text-base font-semibold text-text-primary m-0">
+									<Terminal size={16} className="text-text-secondary" />
+									Status Line
+								</h2>
+							</div>
+							<div className="rounded-lg border border-border bg-surface-0 px-4 py-3 mb-4">
+								<div className="flex items-center gap-2">
+									<RadixSwitch.Root
+										checked={claudeStatusline.enabled}
+										disabled={controlsDisabled || claudeStatusline.settingsParseError !== null}
+										onCheckedChange={claudeStatusline.setEnabled}
+										className="relative h-5 w-9 rounded-full bg-surface-4 data-[state=checked]:bg-accent cursor-pointer disabled:opacity-40"
+									>
+										<RadixSwitch.Thumb className="block h-4 w-4 rounded-full bg-white shadow-sm transition-transform translate-x-0.5 data-[state=checked]:translate-x-[18px]" />
+									</RadixSwitch.Root>
+									<span className="text-[13px] text-text-primary">Use a custom status line</span>
+								</div>
+								<p className="text-text-secondary text-[13px] mt-2 mb-2">
+									Applies to Claude Code on this machine. Open Kanban on each machine you use Claude Code from
+									and save the same script here to keep them in sync.
+								</p>
+								<textarea
+									rows={14}
+									value={claudeStatusline.scriptContent}
+									onChange={(event) => claudeStatusline.setScriptContent(event.target.value)}
+									placeholder="Paste a status line script here, e.g. a Python script starting with #!/usr/bin/env python3"
+									disabled={controlsDisabled}
+									spellCheck={false}
+									className="w-full rounded-md border border-border bg-surface-2 p-3 text-[13px] text-text-primary font-mono placeholder:text-text-tertiary focus:border-border-focus focus:outline-none resize-none disabled:opacity-40"
+								/>
+								{claudeStatusline.settingsParseError ? (
+									<div className="flex gap-2 rounded-md border border-status-red/30 bg-status-red/5 p-3 text-[13px] mt-2">
+										<span className="text-text-primary">{claudeStatusline.settingsParseError}</span>
+									</div>
+								) : null}
+								<p
+									className="text-text-secondary font-mono text-xs mt-2 mb-0 break-all"
+									style={{ cursor: claudeStatusline.scriptPath ? "pointer" : undefined }}
+									onClick={() => {
+										if (claudeStatusline.scriptPath) {
+											handleOpenFilePath(claudeStatusline.scriptPath);
+										}
+									}}
+								>
+									{claudeStatusline.scriptPath ? formatPathForDisplay(claudeStatusline.scriptPath) : ""}
+									{claudeStatusline.scriptPath ? (
+										<ExternalLink size={12} className="inline ml-1.5 align-middle" />
+									) : null}
+								</p>
+								<p
+									className="text-text-secondary font-mono text-xs mt-1 mb-0 break-all"
+									style={{ cursor: claudeStatusline.settingsPath ? "pointer" : undefined }}
+									onClick={() => {
+										if (claudeStatusline.settingsPath) {
+											handleOpenFilePath(claudeStatusline.settingsPath);
+										}
+									}}
+								>
+									{claudeStatusline.settingsPath ? formatPathForDisplay(claudeStatusline.settingsPath) : ""}
+									{claudeStatusline.settingsPath ? (
+										<ExternalLink size={12} className="inline ml-1.5 align-middle" />
+									) : null}
+								</p>
 							</div>
 						</>
 					) : null}
