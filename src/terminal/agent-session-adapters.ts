@@ -980,7 +980,7 @@ function stripJsonComments(input: string): string {
 	return output;
 }
 
-function tryExtractOpenCodeModelFromConfig(rawConfig: string): string | null {
+function parseOpenCodeConfigObject(rawConfig: string): Record<string, unknown> | null {
 	let parsed: unknown;
 	try {
 		parsed = JSON.parse(rawConfig);
@@ -994,7 +994,40 @@ function tryExtractOpenCodeModelFromConfig(rawConfig: string): string | null {
 	if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
 		return null;
 	}
-	const root = parsed as Record<string, unknown>;
+	return parsed as Record<string, unknown>;
+}
+
+// Custom OpenAI-compatible providers (e.g. a self-hosted gateway) declare their available
+// models explicitly under `provider.<id>.models` in opencode.jsonc. Used to catch stale
+// "recent model" history entries that no longer exist for that provider (for example after
+// the provider's model list was edited), which OpenCode otherwise rejects with a visible error.
+function getOpenCodeConfiguredProviderModelIds(root: Record<string, unknown> | null): Map<string, Set<string>> {
+	const map = new Map<string, Set<string>>();
+	if (!root) {
+		return map;
+	}
+	const provider = root.provider;
+	if (!provider || typeof provider !== "object" || Array.isArray(provider)) {
+		return map;
+	}
+	for (const [providerId, providerConfig] of Object.entries(provider as Record<string, unknown>)) {
+		if (!providerConfig || typeof providerConfig !== "object" || Array.isArray(providerConfig)) {
+			continue;
+		}
+		const models = (providerConfig as Record<string, unknown>).models;
+		if (!models || typeof models !== "object" || Array.isArray(models)) {
+			continue;
+		}
+		map.set(providerId, new Set(Object.keys(models as Record<string, unknown>)));
+	}
+	return map;
+}
+
+function tryExtractOpenCodeModelFromConfig(rawConfig: string): string | null {
+	const root = parseOpenCodeConfigObject(rawConfig);
+	if (!root) {
+		return null;
+	}
 
 	const directModel = root.model;
 	if (typeof directModel === "string" && directModel.trim()) {
@@ -1027,6 +1060,7 @@ function tryExtractOpenCodeModelFromConfig(rawConfig: string): string | null {
 }
 
 async function resolveOpenCodePreferredModelArg(configPath: string | null): Promise<string | null> {
+	let configuredProviderModelIds = new Map<string, Set<string>>();
 	if (configPath) {
 		try {
 			const rawConfig = await readFile(configPath, "utf8");
@@ -1034,6 +1068,7 @@ async function resolveOpenCodePreferredModelArg(configPath: string | null): Prom
 			if (modelFromConfig) {
 				return modelFromConfig;
 			}
+			configuredProviderModelIds = getOpenCodeConfiguredProviderModelIds(parseOpenCodeConfigObject(rawConfig));
 		} catch {
 			// Fall through to state-based fallback.
 		}
@@ -1084,6 +1119,12 @@ async function resolveOpenCodePreferredModelArg(configPath: string | null): Prom
 		if (!providerId || !modelId) {
 			continue;
 		}
+		// Skip recent-history entries that no longer exist in a provider's explicitly
+		// configured model list (for example after a custom provider's models were edited).
+		const knownModelIds = configuredProviderModelIds.get(providerId);
+		if (knownModelIds && !knownModelIds.has(modelId)) {
+			continue;
+		}
 		candidates.push({ providerId, model: normalizeOpenCodeModel(providerId, modelId) });
 	}
 	if (candidates.length === 0) {
@@ -1118,10 +1159,6 @@ const opencodeAdapter: AgentSessionAdapter = {
 			args.push("--continue");
 		}
 
-		if (input.autonomousModeEnabled && !hasCliOption(args, "--auto")) {
-			args.push("--auto");
-		}
-
 		if (input.startInPlanMode) {
 			env.OPENCODE_EXPERIMENTAL_PLAN_MODE = "true";
 			if (!hasOpenCodeAgentArg(args)) {
@@ -1130,28 +1167,36 @@ const opencodeAdapter: AgentSessionAdapter = {
 		}
 
 		const hooks = resolveHookContext(input);
-		if (hooks) {
-			const pluginPath = join(getHookAgentDirectory("opencode"), "kanban.js");
+		if (hooks || input.autonomousModeEnabled) {
 			const configPath = join(getHookAgentDirectory("opencode"), "opencode.json");
+			const config: Record<string, unknown> = {};
 
-			const pluginContent = buildOpenCodePluginContent(
-				buildHookCommand("to_review", { source: "opencode" }),
-				buildHookCommand("to_in_progress", { source: "opencode" }),
-				buildHookCommand("activity", { source: "opencode" }),
-			);
-			await ensureTextFile(pluginPath, pluginContent);
-			const pluginFileUrl = pathToFileURL(pluginPath).href;
-			const config = {
-				plugin: [pluginFileUrl],
-			};
+			if (hooks) {
+				const pluginPath = join(getHookAgentDirectory("opencode"), "kanban.js");
+				const pluginContent = buildOpenCodePluginContent(
+					buildHookCommand("to_review", { source: "opencode" }),
+					buildHookCommand("to_in_progress", { source: "opencode" }),
+					buildHookCommand("activity", { source: "opencode" }),
+				);
+				await ensureTextFile(pluginPath, pluginContent);
+				config.plugin = [pathToFileURL(pluginPath).href];
+				Object.assign(
+					env,
+					createHookRuntimeEnv({
+						taskId: hooks.taskId,
+						workspaceId: hooks.workspaceId,
+					}),
+				);
+			}
+
+			if (input.autonomousModeEnabled) {
+				// OpenCode's CLI (root/TUI command) has no permission-bypass flag like
+				// `--dangerously-skip-permissions`; auto-approving tool calls is only
+				// exposed through the config's top-level `permission` field.
+				config.permission = "allow";
+			}
+
 			await ensureTextFile(configPath, JSON.stringify(config));
-			Object.assign(
-				env,
-				createHookRuntimeEnv({
-					taskId: hooks.taskId,
-					workspaceId: hooks.workspaceId,
-				}),
-			);
 			env.OPENCODE_CONFIG = configPath;
 		}
 

@@ -66,8 +66,18 @@ export const RUNTIME_AGENT_CATALOG: RuntimeAgentCatalogEntry[] = [
 		label: "OpenCode",
 		binary: "opencode",
 		baseArgs: [],
-		autonomousArgs: ["--auto"],
+		// OpenCode's CLI has no autonomous/permission-bypass flag; autonomous mode is
+		// applied via a generated `permission: "allow"` config entry instead (see
+		// opencodeAdapter in agent-session-adapters.ts).
+		autonomousArgs: [],
 		installUrl: "https://github.com/sst/opencode",
+		modelFlag: "--model",
+		models: [
+			{ value: "anthropic/claude-sonnet-4-5", label: "Claude Sonnet 4.5" },
+			{ value: "openai/gpt-5-codex", label: "GPT-5 Codex" },
+			{ value: "google/gemini-2.5-pro", label: "Gemini 2.5 Pro" },
+			{ value: "opencode/big-pickle", label: "OpenCode Zen (Big Pickle)" },
+		],
 	},
 	{
 		id: "droid",

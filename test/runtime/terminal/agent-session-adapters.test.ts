@@ -326,6 +326,64 @@ describe("prepareAgentLaunch hook strategies", () => {
 		expect(launch.args[modelIndex + 1]).toBe("openai/gpt-4o");
 	});
 
+	// Regression: a custom provider's most-recently-used model can be removed from its
+	// config after the fact (for example the provider's model list was edited). OpenCode
+	// then rejects that stale model with a visible "not valid" error, so the preferred-model
+	// resolution must skip recent-history entries that no longer exist in the provider's
+	// explicitly configured model list.
+	it("skips a stale recent model no longer declared by a custom provider's config", async () => {
+		const homePath = setupTempHome();
+		const localAppDataPath = join(homePath, "AppData", "Local");
+		process.env.LOCALAPPDATA = localAppDataPath;
+
+		const statePath = join(localAppDataPath, "opencode", "state");
+		mkdirSync(statePath, { recursive: true });
+		writeFileSync(
+			join(statePath, "model.json"),
+			JSON.stringify(
+				{
+					recent: [
+						{ providerID: "lais", modelID: "nvidia/Gemma-4-26B-A4B-NVFP4" },
+						{ providerID: "lais", modelID: "Qwen/Qwen3.6-27B" },
+					],
+				},
+				null,
+				2,
+			),
+			"utf8",
+		);
+
+		const configDir = join(homePath, ".config", "opencode");
+		mkdirSync(configDir, { recursive: true });
+		writeFileSync(
+			join(configDir, "config.json"),
+			JSON.stringify({
+				provider: {
+					lais: {
+						npm: "@ai-sdk/openai-compatible",
+						models: {
+							"Qwen/Qwen3.6-27B": {},
+						},
+					},
+				},
+			}),
+			"utf8",
+		);
+
+		const launch = await prepareAgentLaunch({
+			taskId: "task-opencode-stale-model",
+			agentId: "opencode",
+			binary: "opencode",
+			args: [],
+			cwd: "/tmp",
+			prompt: "",
+		});
+
+		const modelIndex = launch.args.indexOf("--model");
+		expect(modelIndex).toBeGreaterThan(-1);
+		expect(launch.args[modelIndex + 1]).toBe("lais/Qwen/Qwen3.6-27B");
+	});
+
 	it("writes Droid settings with hook transitions and runtime autonomy mode", async () => {
 		setupTempHome();
 		const launch = await prepareAgentLaunch({
@@ -688,7 +746,13 @@ describe("prepareAgentLaunch hook strategies", () => {
 			cwd: "/tmp",
 			prompt: "",
 		});
-		expect(opencodeLaunch.args).toContain("--auto");
+		// OpenCode's CLI has no `--auto`/permission-bypass flag; autonomous mode is
+		// applied via a generated config's `permission: "allow"` field instead.
+		expect(opencodeLaunch.args).not.toContain("--auto");
+		const opencodeConfigPath = opencodeLaunch.env.OPENCODE_CONFIG;
+		expect(opencodeConfigPath).toBeTruthy();
+		const opencodeConfig = JSON.parse(readFileSync(opencodeConfigPath as string, "utf8"));
+		expect(opencodeConfig.permission).toBe("allow");
 
 		const geminiLaunch = await prepareAgentLaunch({
 			taskId: "task-gemini-auto",
