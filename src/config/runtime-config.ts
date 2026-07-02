@@ -19,6 +19,12 @@ interface RuntimeGlobalConfigFileShape {
 	commitPromptTemplate?: string;
 	openPrPromptTemplate?: string;
 	/**
+	 * Last-used `--model` value per CLI agent (Claude Code, Codex, OpenCode, ...), applied as
+	 * that agent's default the next time a task is created with it. Cline's default model
+	 * lives in its own provider settings (see cline-provider-service.ts), never here.
+	 */
+	cliAgentModelDefaults?: Partial<Record<RuntimeAgentId, string>>;
+	/**
 	 * Hub-central custom env vars injected into agent task sessions. Stored only
 	 * in the GLOBAL config (never the per-project file) so the effective set is
 	 * resolved on the hub and works identically for local and remote tasks. May
@@ -43,6 +49,7 @@ export interface RuntimeConfigState {
 	openPrPromptTemplate: string;
 	commitPromptTemplateDefault: string;
 	openPrPromptTemplateDefault: string;
+	cliAgentModelDefaults: Partial<Record<RuntimeAgentId, string>>;
 }
 
 export interface RuntimeConfigUpdateInput {
@@ -53,6 +60,7 @@ export interface RuntimeConfigUpdateInput {
 	shortcuts?: RuntimeProjectShortcut[];
 	commitPromptTemplate?: string;
 	openPrPromptTemplate?: string;
+	cliAgentModelDefaults?: Partial<Record<RuntimeAgentId, string>>;
 }
 
 const RUNTIME_HOME_PARENT_DIR = ".cline";
@@ -208,6 +216,37 @@ function hasOwnKey<T extends object>(value: T | null, key: keyof T): boolean {
 	return Object.hasOwn(value, key);
 }
 
+function normalizeCliAgentModelDefaults(
+	value: Partial<Record<RuntimeAgentId, string>> | null | undefined,
+): Partial<Record<RuntimeAgentId, string>> {
+	if (!value || typeof value !== "object") {
+		return {};
+	}
+	const normalized: Partial<Record<RuntimeAgentId, string>> = {};
+	for (const [agentId, modelId] of Object.entries(value)) {
+		if (typeof modelId !== "string" || normalizeAgentId(agentId) !== agentId) {
+			continue;
+		}
+		const trimmed = modelId.trim();
+		if (trimmed) {
+			normalized[agentId as RuntimeAgentId] = trimmed;
+		}
+	}
+	return normalized;
+}
+
+function areCliAgentModelDefaultsEqual(
+	a: Partial<Record<RuntimeAgentId, string>>,
+	b: Partial<Record<RuntimeAgentId, string>>,
+): boolean {
+	const aKeys = Object.keys(a) as RuntimeAgentId[];
+	const bKeys = Object.keys(b) as RuntimeAgentId[];
+	if (aKeys.length !== bKeys.length) {
+		return false;
+	}
+	return aKeys.every((key) => a[key] === b[key]);
+}
+
 export function getRuntimeGlobalConfigPath(): string {
 	return join(getRuntimeHomePath(), CONFIG_FILENAME);
 }
@@ -299,6 +338,7 @@ function toRuntimeConfigState({
 		),
 		commitPromptTemplateDefault: DEFAULT_COMMIT_PROMPT_TEMPLATE,
 		openPrPromptTemplateDefault: DEFAULT_OPEN_PR_PROMPT_TEMPLATE,
+		cliAgentModelDefaults: normalizeCliAgentModelDefaults(globalConfig?.cliAgentModelDefaults),
 	};
 }
 
@@ -320,12 +360,20 @@ async function writeRuntimeGlobalConfigFile(
 		readyForReviewNotificationsEnabled?: boolean;
 		commitPromptTemplate?: string;
 		openPrPromptTemplate?: string;
+		cliAgentModelDefaults?: Partial<Record<RuntimeAgentId, string>>;
 	},
 ): Promise<void> {
 	const existing = await readRuntimeConfigFile<RuntimeGlobalConfigFileShape>(configPath);
 	const selectedAgentId = config.selectedAgentId === undefined ? undefined : normalizeAgentId(config.selectedAgentId);
 	const existingSelectedAgentId = hasOwnKey(existing, "selectedAgentId")
 		? normalizeAgentId(existing?.selectedAgentId)
+		: undefined;
+	const cliAgentModelDefaults =
+		config.cliAgentModelDefaults === undefined
+			? undefined
+			: normalizeCliAgentModelDefaults(config.cliAgentModelDefaults);
+	const existingCliAgentModelDefaults = hasOwnKey(existing, "cliAgentModelDefaults")
+		? normalizeCliAgentModelDefaults(existing?.cliAgentModelDefaults)
 		: undefined;
 	const selectedShortcutLabel =
 		config.selectedShortcutLabel === undefined ? undefined : normalizeShortcutLabel(config.selectedShortcutLabel);
@@ -363,6 +411,10 @@ async function writeRuntimeGlobalConfigFile(
 		}
 	} else if (existingSelectedShortcutLabel) {
 		payload.selectedShortcutLabel = existingSelectedShortcutLabel;
+	}
+	const nextCliAgentModelDefaults = cliAgentModelDefaults ?? existingCliAgentModelDefaults;
+	if (nextCliAgentModelDefaults && Object.keys(nextCliAgentModelDefaults).length > 0) {
+		payload.cliAgentModelDefaults = nextCliAgentModelDefaults;
 	}
 	if (
 		hasOwnKey(existing, "agentAutonomousModeEnabled") ||
@@ -488,6 +540,7 @@ function createRuntimeConfigStateFromValues(input: {
 	shortcuts: RuntimeProjectShortcut[];
 	commitPromptTemplate: string;
 	openPrPromptTemplate: string;
+	cliAgentModelDefaults: Partial<Record<RuntimeAgentId, string>>;
 }): RuntimeConfigState {
 	return {
 		globalConfigPath: input.globalConfigPath,
@@ -507,6 +560,7 @@ function createRuntimeConfigStateFromValues(input: {
 		openPrPromptTemplate: normalizePromptTemplate(input.openPrPromptTemplate, DEFAULT_OPEN_PR_PROMPT_TEMPLATE),
 		commitPromptTemplateDefault: DEFAULT_COMMIT_PROMPT_TEMPLATE,
 		openPrPromptTemplateDefault: DEFAULT_OPEN_PR_PROMPT_TEMPLATE,
+		cliAgentModelDefaults: normalizeCliAgentModelDefaults(input.cliAgentModelDefaults),
 	};
 }
 
@@ -521,6 +575,7 @@ export function toGlobalRuntimeConfigState(current: RuntimeConfigState): Runtime
 		shortcuts: [],
 		commitPromptTemplate: current.commitPromptTemplate,
 		openPrPromptTemplate: current.openPrPromptTemplate,
+		cliAgentModelDefaults: current.cliAgentModelDefaults,
 	});
 }
 
@@ -589,10 +644,13 @@ export async function saveRuntimeConfig(
 		shortcuts: RuntimeProjectShortcut[];
 		commitPromptTemplate: string;
 		openPrPromptTemplate: string;
+		cliAgentModelDefaults?: Partial<Record<RuntimeAgentId, string>>;
 	},
 ): Promise<RuntimeConfigState> {
 	const { globalConfigPath, projectConfigPath } = resolveRuntimeConfigPaths(cwd);
 	return await lockedFileSystem.withLocks(getRuntimeConfigLockRequests(cwd), async () => {
+		const current = await loadRuntimeConfigLocked(cwd);
+		const cliAgentModelDefaults = config.cliAgentModelDefaults ?? current.cliAgentModelDefaults;
 		await writeRuntimeGlobalConfigFile(globalConfigPath, {
 			selectedAgentId: config.selectedAgentId,
 			selectedShortcutLabel: config.selectedShortcutLabel,
@@ -600,6 +658,7 @@ export async function saveRuntimeConfig(
 			readyForReviewNotificationsEnabled: config.readyForReviewNotificationsEnabled,
 			commitPromptTemplate: config.commitPromptTemplate,
 			openPrPromptTemplate: config.openPrPromptTemplate,
+			cliAgentModelDefaults,
 		});
 		await writeRuntimeProjectConfigFile(projectConfigPath, { shortcuts: config.shortcuts });
 		return createRuntimeConfigStateFromValues({
@@ -612,6 +671,7 @@ export async function saveRuntimeConfig(
 			shortcuts: config.shortcuts,
 			commitPromptTemplate: config.commitPromptTemplate,
 			openPrPromptTemplate: config.openPrPromptTemplate,
+			cliAgentModelDefaults,
 		});
 	});
 }
@@ -633,6 +693,7 @@ export async function updateRuntimeConfig(cwd: string, updates: RuntimeConfigUpd
 			shortcuts: projectConfigPath ? (updates.shortcuts ?? current.shortcuts) : current.shortcuts,
 			commitPromptTemplate: updates.commitPromptTemplate ?? current.commitPromptTemplate,
 			openPrPromptTemplate: updates.openPrPromptTemplate ?? current.openPrPromptTemplate,
+			cliAgentModelDefaults: updates.cliAgentModelDefaults ?? current.cliAgentModelDefaults,
 		};
 
 		const hasChanges =
@@ -642,7 +703,8 @@ export async function updateRuntimeConfig(cwd: string, updates: RuntimeConfigUpd
 			nextConfig.readyForReviewNotificationsEnabled !== current.readyForReviewNotificationsEnabled ||
 			nextConfig.commitPromptTemplate !== current.commitPromptTemplate ||
 			nextConfig.openPrPromptTemplate !== current.openPrPromptTemplate ||
-			!areRuntimeProjectShortcutsEqual(nextConfig.shortcuts, current.shortcuts);
+			!areRuntimeProjectShortcutsEqual(nextConfig.shortcuts, current.shortcuts) ||
+			!areCliAgentModelDefaultsEqual(nextConfig.cliAgentModelDefaults, current.cliAgentModelDefaults);
 
 		if (!hasChanges) {
 			return current;
@@ -655,6 +717,7 @@ export async function updateRuntimeConfig(cwd: string, updates: RuntimeConfigUpd
 			readyForReviewNotificationsEnabled: nextConfig.readyForReviewNotificationsEnabled,
 			commitPromptTemplate: nextConfig.commitPromptTemplate,
 			openPrPromptTemplate: nextConfig.openPrPromptTemplate,
+			cliAgentModelDefaults: nextConfig.cliAgentModelDefaults,
 		});
 		await writeRuntimeProjectConfigFile(projectConfigPath, {
 			shortcuts: nextConfig.shortcuts,
@@ -669,6 +732,7 @@ export async function updateRuntimeConfig(cwd: string, updates: RuntimeConfigUpd
 			shortcuts: nextConfig.shortcuts,
 			commitPromptTemplate: nextConfig.commitPromptTemplate,
 			openPrPromptTemplate: nextConfig.openPrPromptTemplate,
+			cliAgentModelDefaults: nextConfig.cliAgentModelDefaults,
 		});
 	});
 }
@@ -698,6 +762,7 @@ export async function updateGlobalRuntimeConfig(
 				shortcuts: current.shortcuts,
 				commitPromptTemplate: updates.commitPromptTemplate ?? current.commitPromptTemplate,
 				openPrPromptTemplate: updates.openPrPromptTemplate ?? current.openPrPromptTemplate,
+				cliAgentModelDefaults: updates.cliAgentModelDefaults ?? current.cliAgentModelDefaults,
 			};
 
 			const hasChanges =
@@ -706,7 +771,8 @@ export async function updateGlobalRuntimeConfig(
 				nextConfig.agentAutonomousModeEnabled !== current.agentAutonomousModeEnabled ||
 				nextConfig.readyForReviewNotificationsEnabled !== current.readyForReviewNotificationsEnabled ||
 				nextConfig.commitPromptTemplate !== current.commitPromptTemplate ||
-				nextConfig.openPrPromptTemplate !== current.openPrPromptTemplate;
+				nextConfig.openPrPromptTemplate !== current.openPrPromptTemplate ||
+				!areCliAgentModelDefaultsEqual(nextConfig.cliAgentModelDefaults, current.cliAgentModelDefaults);
 
 			if (!hasChanges) {
 				return current;
@@ -719,6 +785,7 @@ export async function updateGlobalRuntimeConfig(
 				readyForReviewNotificationsEnabled: nextConfig.readyForReviewNotificationsEnabled,
 				commitPromptTemplate: nextConfig.commitPromptTemplate,
 				openPrPromptTemplate: nextConfig.openPrPromptTemplate,
+				cliAgentModelDefaults: nextConfig.cliAgentModelDefaults,
 			});
 
 			return createRuntimeConfigStateFromValues({
@@ -731,6 +798,7 @@ export async function updateGlobalRuntimeConfig(
 				shortcuts: nextConfig.shortcuts,
 				commitPromptTemplate: nextConfig.commitPromptTemplate,
 				openPrPromptTemplate: nextConfig.openPrPromptTemplate,
+				cliAgentModelDefaults: nextConfig.cliAgentModelDefaults,
 			});
 		},
 	);

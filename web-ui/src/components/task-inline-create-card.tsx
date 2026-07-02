@@ -81,6 +81,7 @@ export function TaskInlineCreateCard({
 	defaultProviderId,
 	defaultModelId,
 	defaultReasoningEffort,
+	cliModelDefaults,
 }: {
 	title?: string;
 	onTitleChange?: (value: string) => void;
@@ -123,6 +124,8 @@ export function TaskInlineCreateCard({
 	defaultModelId?: string | null;
 	/** Default Cline reasoning effort from runtimeConfig.clineProviderSettings.reasoningEffort */
 	defaultReasoningEffort?: RuntimeClineReasoningEffort | null;
+	/** Last-used model per CLI agent, remembered from a prior task's explicit override. */
+	cliModelDefaults?: Partial<Record<RuntimeAgentId, string>>;
 }): ReactElement {
 	const promptId = `${idPrefix}-prompt-input`;
 	const planModeId = `${idPrefix}-plan-mode-toggle`;
@@ -345,6 +348,7 @@ export function TaskInlineCreateCard({
 						defaultProviderId={defaultProviderId}
 						defaultReasoningEffort={defaultReasoningEffort}
 						providerDefaultModels={providerDefaultModels}
+						cliModelDefaults={cliModelDefaults}
 						onPopoverOpenChange={setIsModelPickerPopoverOpen}
 					/>
 				) : null}

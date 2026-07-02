@@ -34,10 +34,12 @@ export const RUNTIME_AGENT_CATALOG: RuntimeAgentCatalogEntry[] = [
 		autonomousArgs: ["--dangerously-skip-permissions"],
 		installUrl: "https://docs.anthropic.com/en/docs/claude-code/quickstart",
 		modelFlag: "--model",
+		// Mirrors Claude Code's own `/model` picker (aliases accepted by `--model`).
 		models: [
-			{ value: "opus", label: "Opus" },
-			{ value: "sonnet", label: "Sonnet" },
-			{ value: "haiku", label: "Haiku" },
+			{ value: "sonnet", label: "Sonnet 5" },
+			{ value: "fable", label: "Fable 5" },
+			{ value: "opus", label: "Opus 4.8" },
+			{ value: "haiku", label: "Haiku 4.5" },
 		],
 	},
 	{
@@ -48,9 +50,14 @@ export const RUNTIME_AGENT_CATALOG: RuntimeAgentCatalogEntry[] = [
 		autonomousArgs: ["--dangerously-bypass-approvals-and-sandbox"],
 		installUrl: "https://github.com/openai/codex",
 		modelFlag: "--model",
+		// Mirrors Codex's own "Select Model and Effort" picker (verified these are the exact
+		// values accepted by `--model`/`-m`).
 		models: [
-			{ value: "gpt-5-codex", label: "GPT-5 Codex" },
-			{ value: "gpt-5", label: "GPT-5" },
+			{ value: "gpt-5.5", label: "GPT-5.5" },
+			{ value: "gpt-5.4", label: "GPT-5.4" },
+			{ value: "gpt-5.4-mini", label: "GPT-5.4 Mini" },
+			{ value: "gpt-5.3-codex", label: "GPT-5.3 Codex" },
+			{ value: "gpt-5.2", label: "GPT-5.2" },
 		],
 	},
 	{
@@ -66,8 +73,23 @@ export const RUNTIME_AGENT_CATALOG: RuntimeAgentCatalogEntry[] = [
 		label: "OpenCode",
 		binary: "opencode",
 		baseArgs: [],
+		// OpenCode's CLI has no autonomous/permission-bypass flag; autonomous mode is
+		// applied via a generated `permission: "allow"` config entry instead (see
+		// opencodeAdapter in agent-session-adapters.ts).
 		autonomousArgs: [],
 		installUrl: "https://github.com/sst/opencode",
+		modelFlag: "--model",
+		// The OpenCode Zen models below are bundled and free on every OpenCode install
+		// (verified via `opencode models opencode`), so they work with zero setup. Models
+		// from other providers (Anthropic, OpenAI, Google, custom gateways, ...) require
+		// that provider to be configured first — use "Custom…" for those.
+		models: [
+			{ value: "opencode/big-pickle", label: "Big Pickle (Free)" },
+			{ value: "opencode/north-mini-code-free", label: "North Mini Code (Free)" },
+			{ value: "opencode/nemotron-3-ultra-free", label: "Nemotron 3 Ultra (Free)" },
+			{ value: "opencode/deepseek-v4-flash-free", label: "DeepSeek V4 Flash (Free)" },
+			{ value: "opencode/mimo-v2.5-free", label: "MiMo V2.5 (Free)" },
+		],
 	},
 	{
 		id: "droid",
@@ -105,15 +127,14 @@ export const RUNTIME_AGENT_CATALOG: RuntimeAgentCatalogEntry[] = [
 	},
 ];
 
-// Temporarily keep launch support scoped to the core agent set.
-// Re-enable additional CLIs by uncommenting entries below when ready.
 export const RUNTIME_LAUNCH_SUPPORTED_AGENT_IDS: readonly RuntimeAgentId[] = [
 	"cline",
 	"claude",
 	"codex",
+	"opencode",
 	"droid",
 	"kiro",
-	// "opencode",
+	// Gemini remains gated pending a separate review.
 	// "gemini",
 ];
 

@@ -133,6 +133,7 @@ export function TaskCreateDialog({
 	defaultProviderId,
 	defaultModelId,
 	defaultReasoningEffort,
+	cliModelDefaults,
 }: {
 	open: boolean;
 	onOpenChange: (open: boolean) => void;
@@ -175,6 +176,8 @@ export function TaskCreateDialog({
 	defaultModelId?: string | null;
 	/** Default Cline reasoning effort from runtimeConfig.clineProviderSettings.reasoningEffort */
 	defaultReasoningEffort?: RuntimeClineReasoningEffort | null;
+	/** Last-used model per CLI agent, remembered from a prior task's explicit override. */
+	cliModelDefaults?: Partial<Record<RuntimeAgentId, string>>;
 }): ReactElement {
 	const [mode, setMode] = useState<"single" | "multi">("single");
 	const [createMore, setCreateMore] = useState(false);
@@ -614,6 +617,7 @@ export function TaskCreateDialog({
 							defaultProviderId={defaultProviderId}
 							defaultReasoningEffort={defaultReasoningEffort}
 							providerDefaultModels={providerDefaultModels}
+							cliModelDefaults={cliModelDefaults}
 						/>
 					) : null}
 					{mode === "single" && (agentId ?? defaultAgentId) !== "cline" ? (

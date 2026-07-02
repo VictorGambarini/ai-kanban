@@ -11,7 +11,8 @@ import {
 	TASK_START_IN_PLAN_MODE_STORAGE_KEY,
 } from "@/hooks/app-utils";
 import { queueTaskEnvWrite } from "@/runtime/pending-agent-env-writes";
-import type { RuntimeAgentId, RuntimeTaskClineSettings } from "@/runtime/types";
+import { persistTaskAgentDefaultsIfChanged } from "@/runtime/persist-task-agent-defaults";
+import type { RuntimeAgentId, RuntimeConfigResponse, RuntimeTaskClineSettings } from "@/runtime/types";
 import { addTaskToColumnWithResult, findCardSelection, updateTask, updateTaskTitle } from "@/state/board-state";
 import { readLastUsedSkillNames, recordSkillSelection } from "@/storage/skill-preferences";
 import { toTelemetrySelectedAgentId, trackTaskCreated } from "@/telemetry/events";
@@ -26,6 +27,10 @@ interface UseTaskEditorInput {
 	createTaskBranchOptions: Array<{ value: string; label: string }>;
 	defaultTaskBranchRef: string;
 	selectedAgentId: RuntimeAgentId | null;
+	/** Full runtime config, used to remember an explicit agent/model override as the new default. */
+	runtimeConfig: RuntimeConfigResponse | null;
+	/** Re-fetches runtimeConfig after persisting a new agent/model default, so the picker reflects it immediately. */
+	refreshRuntimeConfig?: () => void;
 	setSelectedTaskId: Dispatch<SetStateAction<string | null>>;
 	queueTaskStartAfterEdit?: (taskId: string) => void;
 }
@@ -104,6 +109,8 @@ export function useTaskEditor({
 	createTaskBranchOptions,
 	defaultTaskBranchRef,
 	selectedAgentId,
+	runtimeConfig,
+	refreshRuntimeConfig,
 	setSelectedTaskId,
 	queueTaskStartAfterEdit,
 }: UseTaskEditorInput): UseTaskEditorResult {
@@ -414,6 +421,14 @@ export function useTaskEditor({
 					toast.error("Task created, but saving its environment variables failed");
 				});
 			}
+			// Remember an explicit agent/model override as the default for the next task.
+			void persistTaskAgentDefaultsIfChanged({
+				workspaceId: currentProjectId,
+				runtimeConfig,
+				agentId: newTaskAgentId,
+				cliModel: newTaskCliModel,
+				clineSettings: newTaskClineSettings,
+			}).then(() => refreshRuntimeConfig?.());
 			setNewTaskPrompt("");
 			setNewTaskImages([]);
 			setNewTaskBranchRef(baseRef);
@@ -441,7 +456,9 @@ export function useTaskEditor({
 			newTaskImages,
 			newTaskPrompt,
 			newTaskStartInPlanMode,
+			refreshRuntimeConfig,
 			resolvedDefaultTaskBranchRef,
+			runtimeConfig,
 			selectedAgentId,
 			setBoard,
 			setNewTaskAgentId,
@@ -494,6 +511,14 @@ export function useTaskEditor({
 			}
 
 			recordSkillSelection(currentProjectId, newTaskSkillNames);
+			// Remember an explicit agent/model override as the default for the next task.
+			void persistTaskAgentDefaultsIfChanged({
+				workspaceId: currentProjectId,
+				runtimeConfig,
+				agentId: newTaskAgentId,
+				cliModel: newTaskCliModel,
+				clineSettings: newTaskClineSettings,
+			}).then(() => refreshRuntimeConfig?.());
 			setNewTaskPrompt("");
 			setNewTaskImages([]);
 			setNewTaskBranchRef(baseRef);
@@ -518,6 +543,8 @@ export function useTaskEditor({
 			newTaskSkillNames,
 			newTaskImages,
 			newTaskStartInPlanMode,
+			refreshRuntimeConfig,
+			runtimeConfig,
 			resolvedDefaultTaskBranchRef,
 			selectedAgentId,
 			setBoard,

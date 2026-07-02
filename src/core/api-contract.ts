@@ -990,6 +990,8 @@ export const runtimeConfigResponseSchema = z.object({
 	openPrPromptTemplate: z.string(),
 	commitPromptTemplateDefault: z.string(),
 	openPrPromptTemplateDefault: z.string(),
+	/** Last-used `--model` value per CLI agent, applied as that agent's default on the next task. */
+	cliAgentModelDefaults: z.partialRecord(runtimeAgentIdSchema, z.string()),
 });
 export type RuntimeConfigResponse = z.infer<typeof runtimeConfigResponseSchema>;
 
@@ -1008,6 +1010,7 @@ export const runtimeConfigSaveRequestSchema = z.object({
 	readyForReviewNotificationsEnabled: z.boolean().optional(),
 	commitPromptTemplate: z.string().optional(),
 	openPrPromptTemplate: z.string().optional(),
+	cliAgentModelDefaults: z.partialRecord(runtimeAgentIdSchema, z.string()).optional(),
 });
 export type RuntimeConfigSaveRequest = z.infer<typeof runtimeConfigSaveRequestSchema>;
 

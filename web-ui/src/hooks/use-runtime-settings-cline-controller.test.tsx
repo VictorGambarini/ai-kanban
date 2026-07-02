@@ -105,6 +105,7 @@ function createRuntimeConfigResponse(
 		openPrPromptTemplate: "",
 		commitPromptTemplateDefault: "",
 		openPrPromptTemplateDefault: "",
+		cliAgentModelDefaults: {},
 	};
 }
 
