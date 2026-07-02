@@ -2,7 +2,7 @@
 Kanban has to shut down cleanly across several launch shapes:
 
 - `kanban`
-- `npx kanban`
+- `npx @victorgambarini/ai-kanban`
 - `cline --kanban`
 - `npx cline --kanban`
 

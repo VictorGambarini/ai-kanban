@@ -13,11 +13,11 @@ We are actively looking for help with:
 - Bug fixes: anything that makes the current feature set more stable and reliable
 - Test coverage: adding tests for untested paths, especially platform-specific and agent-specific behavior
 
-We are not currently accepting feature PRs. If you have a feature idea, please open a [Feature Request discussion](https://github.com/cline/kanban/discussions/categories/feature-requests) instead. We may incorporate it into the roadmap, but the priority right now is stability and compatibility.
+We are not currently accepting feature PRs. If you have a feature idea, please open a [Feature Request discussion](https://github.com/VictorGambarini/ai-kanban/discussions/categories/feature-requests) instead. We may incorporate it into the roadmap, but the priority right now is stability and compatibility.
 
 ## Reporting Bugs
 
-Before opening a new issue, search [existing issues](https://github.com/cline/kanban/issues) to avoid duplicates. When filing a bug, include:
+Before opening a new issue, search [existing issues](https://github.com/VictorGambarini/ai-kanban/issues) to avoid duplicates. When filing a bug, include:
 
 - Your OS and version
 - Which CLI agent you're using (and its version)
@@ -25,7 +25,7 @@ Before opening a new issue, search [existing issues](https://github.com/cline/ka
 - Expected vs. actual behavior
 - Any relevant terminal output or screenshots
 
-If you discover a security vulnerability, please report it privately using [GitHub's security advisory tool](https://github.com/cline/kanban/security/advisories/new).
+If you discover a security vulnerability, please report it privately using [GitHub's security advisory tool](https://github.com/VictorGambarini/ai-kanban/security/advisories/new).
 
 ## Before Contributing
 
@@ -37,8 +37,8 @@ PRs without a corresponding issue may be closed.
 
 1. Clone the repository:
    ```bash
-   git clone https://github.com/cline/kanban.git
-   cd kanban
+   git clone https://github.com/VictorGambarini/ai-kanban.git
+   cd ai-kanban
    ```
 
 2. Install dependencies:
@@ -91,8 +91,8 @@ Kanban is in foundation mode. Favor clear primitives and good tooling over early
 ## Community
 
 - [Discord](https://discord.gg/cline) (join the #kanban channel)
-- [Feature Requests](https://github.com/cline/kanban/discussions/categories/feature-requests)
-- [Issues](https://github.com/cline/kanban/issues)
+- [Feature Requests](https://github.com/VictorGambarini/ai-kanban/discussions/categories/feature-requests)
+- [Issues](https://github.com/VictorGambarini/ai-kanban/issues)
 
 ## License
 
