@@ -39,6 +39,8 @@ import {
 	listSdkProviderModels,
 	loginManagedOauthProvider,
 	type ManagedClineOauthProviderId,
+	migrateSdkLegacyProviderIds,
+	normalizeSdkProviderId,
 	refreshManagedOauthCredentials,
 	SDK_DEFAULT_MODEL_ID,
 	SDK_DEFAULT_PROVIDER_ID,
@@ -472,16 +474,22 @@ export function createClineProviderService() {
 	const getProviderSettingsSummary = (): RuntimeClineProviderSettings =>
 		toProviderSettingsSummary(getSelectedProviderSettings());
 
-	// Re-register disk-persisted custom providers into the llms registry exactly
-	// once per process. The SDK's local in-process backend does not auto-load
-	// these, so without this a custom OpenAI-compatible provider added in a prior
-	// runtime is unknown after a restart and task launch / model listing fail.
-	// Memoized so concurrent callers share a single load; provider add/update
-	// paths register themselves separately via addSdkCustomProvider.
+	// Bring persisted provider state in line with the llms registry exactly once
+	// per process: rewrite settings stored under legacy provider-id aliases
+	// ("openai" → "openai-native") to canonical ids, then re-register
+	// disk-persisted custom providers. The SDK's local in-process backend does
+	// not auto-load custom providers, so without this a custom OpenAI-compatible
+	// provider added in a prior runtime is unknown after a restart and task
+	// launch / model listing fail. Memoized so concurrent callers share a single
+	// load; provider add/update paths register themselves separately via
+	// addSdkCustomProvider.
 	let customProvidersLoadPromise: Promise<void> | null = null;
 	const ensureCustomProvidersLoadedOnce = (): Promise<void> => {
 		if (!customProvidersLoadPromise) {
-			customProvidersLoadPromise = ensureSdkCustomProvidersLoaded().catch((error) => {
+			customProvidersLoadPromise = (async () => {
+				migrateSdkLegacyProviderIds();
+				await ensureSdkCustomProvidersLoaded();
+			})().catch((error) => {
 				// Reset so a later caller can retry after a transient failure.
 				customProvidersLoadPromise = null;
 				LOGGER.log("Failed to load custom providers into the llms registry.", {
@@ -829,7 +837,7 @@ export function createClineProviderService() {
 				);
 			}
 
-			const normalizedProviderId = selectedSettings.provider.trim().toLowerCase();
+			const normalizedProviderId = normalizeSdkProviderId(selectedSettings.provider);
 			if (!normalizedProviderId) {
 				throw new Error(
 					"No native Cline provider is configured. Open Settings, choose a provider, and then start the task again.",
@@ -909,7 +917,7 @@ export function createClineProviderService() {
 
 		async getProviderModels(providerId: string): Promise<RuntimeClineProviderModelsResponse> {
 			await ensureCustomProvidersLoadedOnce();
-			const normalizedProviderId = providerId.trim().toLowerCase();
+			const normalizedProviderId = normalizeSdkProviderId(providerId);
 			let providerModels =
 				normalizedProviderId.length > 0
 					? await listSdkProviderModels(normalizedProviderId)

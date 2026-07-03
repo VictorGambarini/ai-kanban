@@ -1,3 +1,4 @@
+import type { StoredProviderSettings } from "@clinebot/core";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const clineAccountMocks = vi.hoisted(() => ({
@@ -15,6 +16,8 @@ const oauthMocks = vi.hoisted(() => ({
 	saveProviderSettings: vi.fn(),
 	getProviderSettings: vi.fn(),
 	getLastUsedProviderSettings: vi.fn(),
+	read: vi.fn((): StoredProviderSettings => ({ version: 1, providers: {} })),
+	write: vi.fn(),
 }));
 
 const llmsModelMocks = vi.hoisted(() => ({
@@ -70,9 +73,11 @@ vi.mock("@clinebot/core", () => ({
 			};
 		});
 		getFilePath = vi.fn(() => "/tmp/provider-settings.json");
-		read = vi.fn(() => ({ providers: {} }));
-		write = vi.fn();
+		read = oauthMocks.read;
+		write = oauthMocks.write;
 	},
+	// Mirrors the SDK's legacy provider-id alias map (llms PROVIDER_ID_ALIASES).
+	normalizeProviderId: (providerId: string) => (providerId === "openai" ? "openai-native" : providerId),
 	Llms: {
 		getAllProviders: llmsModelMocks.getAllProviders,
 		getModelsForProvider: llmsModelMocks.getModelsForProvider,
@@ -267,6 +272,86 @@ describe("getProviderModels", () => {
 		await createClineProviderService().getProviderModels("litellm");
 
 		expect(localProviderMocks.ensureCustomProvidersLoaded).toHaveBeenCalled();
+	});
+});
+
+describe("legacy provider id aliases", () => {
+	// Regression for the "Unknown or disabled provider \"openai\"" launch failure:
+	// settings written by other Cline surfaces can carry legacy provider ids
+	// ("openai") that the llms registry only knows canonically ("openai-native").
+	beforeEach(() => {
+		vi.clearAllMocks();
+		llmsModelMocks.getAllProviders.mockResolvedValue([]);
+	});
+
+	it("migrates settings stored under a legacy alias to the canonical id", () => {
+		oauthMocks.read.mockReturnValueOnce({
+			version: 1,
+			lastUsedProvider: "openai",
+			providers: {
+				openai: {
+					settings: { provider: "openai", apiKey: "sk-legacy", model: "gpt-5.4" },
+					updatedAt: "2026-01-01T00:00:00.000Z",
+					tokenSource: "manual",
+				},
+			},
+		});
+
+		createClineProviderService();
+
+		expect(oauthMocks.write).toHaveBeenCalledWith({
+			version: 1,
+			lastUsedProvider: "openai-native",
+			providers: {
+				"openai-native": {
+					settings: { provider: "openai-native", apiKey: "sk-legacy", model: "gpt-5.4" },
+					updatedAt: "2026-01-01T00:00:00.000Z",
+					tokenSource: "manual",
+				},
+			},
+		});
+	});
+
+	it("does not rewrite provider settings that already use canonical ids", () => {
+		oauthMocks.read.mockReturnValueOnce({
+			version: 1,
+			lastUsedProvider: "openai-native",
+			providers: {
+				"openai-native": {
+					settings: { provider: "openai-native", apiKey: "sk-current" },
+					updatedAt: "2026-01-01T00:00:00.000Z",
+					tokenSource: "manual",
+				},
+			},
+		});
+
+		createClineProviderService();
+
+		expect(oauthMocks.write).not.toHaveBeenCalled();
+	});
+
+	it('resolves a legacy "openai" selection to the canonical openai-native launch provider', async () => {
+		setSelectedProviderSettings({ provider: "openai", model: "gpt-5.4", apiKey: "sk-test" });
+
+		const launchConfig = await createClineProviderService().resolveLaunchConfig();
+
+		expect(launchConfig.providerId).toBe("openai-native");
+		expect(launchConfig.modelId).toBe("gpt-5.4");
+		expect(launchConfig.apiKey).toBe("sk-test");
+	});
+
+	it('lists models for a legacy "openai" id under the canonical openai-native id', async () => {
+		setSelectedProviderSettings({ provider: "openai", model: "gpt-5.4", apiKey: "sk-test" });
+		localProviderMocks.getLocalProviderModels.mockResolvedValue({
+			providerId: "openai-native",
+			models: [{ id: "gpt-5.4", name: "gpt-5.4" }],
+		});
+
+		const result = await createClineProviderService().getProviderModels("openai");
+
+		expect(localProviderMocks.getLocalProviderModels).toHaveBeenCalledWith("openai-native", undefined);
+		expect(result.providerId).toBe("openai-native");
+		expect(result.models.map((model) => model.id)).toEqual(["gpt-5.4"]);
 	});
 });
 
