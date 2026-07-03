@@ -524,10 +524,15 @@ export async function createSkill(
 		.replace(/^-+|-+$/g, "");
 	const skillDir = join(workspacePath, ".agents", "skills", slug);
 	await mkdir(skillDir, { recursive: true });
-	const frontmatter: SkillFrontmatter = { name: slug };
-	if (description?.trim()) {
-		frontmatter.description = description.trim();
-	}
+	// A listable skill requires a non-empty description (same rule as the skills CLI and
+	// the agents' own discovery), so a skill written without one would be an invisible
+	// orphan — on disk but never listed, with no UI way to see or delete it. Derive a
+	// fallback from the instructions when the user leaves description blank.
+	const fallbackDescription = sanitizeMetadata(instructions).slice(0, 120) || slug;
+	const frontmatter: SkillFrontmatter = {
+		name: slug,
+		description: description?.trim() || fallbackDescription,
+	};
 	const content = `${serializeSkill(frontmatter, instructions.trim())}\n`;
 	await writeFile(join(skillDir, SKILL_MAIN_FILE), content, "utf8");
 	invalidateSkillsCache(workspacePath);

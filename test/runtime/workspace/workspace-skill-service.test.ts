@@ -131,12 +131,20 @@ describe("createSkill", () => {
 		expect(md).toContain("Line two with `code`.");
 	});
 
-	it("omits description when not provided", async () => {
+	// Regression: ISSUE-001 — a skill created without a description was written to disk
+	// but never listed (parseSkillMd requires a description), leaving an invisible orphan
+	// with no UI way to see or delete it.
+	// Found by /qa on 2026-07-04
+	// Report: .gstack/qa-reports/qa-report-127-0-0-1-4471-2026-07-04.md
+	it("derives a description from the instructions when none is provided, so the skill stays listable", async () => {
 		await createSkill(workspace, { name: "bare", instructions: "body only" });
 		const md = await readFile(join(workspace, ".agents/skills/bare/SKILL.md"), "utf8");
 		const fm = frontmatterOf(md);
 		expect(fm.name).toBe("bare");
-		expect(fm.description).toBeUndefined();
+		expect(fm.description).toBe("body only");
+
+		const skills = await listSkills(workspace);
+		expect(skills.map((s) => s.name)).toEqual(["bare"]);
 	});
 });
 
