@@ -130,11 +130,20 @@ function normalizeRuntimeTaskClineSettings(input: {
 	};
 }
 
+/** Where a skill lives: inside the workspace (project) or in the user's home dirs (global). */
+export const runtimeWorkspaceSkillScopeSchema = z.enum(["project", "global"]);
+export type RuntimeWorkspaceSkillScope = z.infer<typeof runtimeWorkspaceSkillScopeSchema>;
+
 export const runtimeWorkspaceSkillSchema = z.object({
 	name: z.string(),
 	description: z.string().optional(),
 	disabled: z.boolean(),
 	dirPath: z.string(),
+	/**
+	 * Scope the skill was discovered in. Current runtimes always set it; optional only so
+	 * a hub UI can still parse lists from older remote runtimes (treat absent as "project").
+	 */
+	scope: runtimeWorkspaceSkillScopeSchema.optional(),
 	/** Source slug the skill was installed from, e.g. "anthropics/skills". Absent for locally-created skills. */
 	installedFrom: z.string().optional(),
 	/** ISO timestamp recorded when the skill was installed via Kanban. */

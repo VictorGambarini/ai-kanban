@@ -14,6 +14,7 @@ const BLOCK_END = "# kanban-managed-skill-paths:end";
 // still show up normally.
 const SKILL_EXCLUDE_PATTERNS = [
 	"/.agents/skills/",
+	"/.agents/skills-meta.json",
 	"/.claude/skills/",
 	"/.claude/settings.local.json",
 	"/.cline/skills/",

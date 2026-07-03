@@ -779,6 +779,13 @@ export function CardDetailView({
 								agentId={selection.card.agentId}
 								selectedSkillNames={selection.card.skillNames ?? []}
 								onPersist={(skillNames) => onTaskSkillsChanged?.(selection.card.id, skillNames)}
+								// CLI agents snapshot skills at spawn, so a live session needs a
+								// restart to see them; the in-process Cline agent does not.
+								onRequestRestart={
+									!showClineAgentChatPanel && onRestartTaskEnv
+										? () => onRestartTaskEnv(selection.card.id)
+										: undefined
+								}
 							/>
 						) : null}
 					</div>

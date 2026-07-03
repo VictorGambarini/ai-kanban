@@ -96,6 +96,7 @@ import type {
 	RuntimeWorkspaceFileSearchRequest,
 	RuntimeWorkspaceFileSearchResponse,
 	RuntimeWorkspaceSkill,
+	RuntimeWorkspaceSkillScope,
 	RuntimeWorkspaceStateNotifyResponse,
 	RuntimeWorkspaceStateResponse,
 	RuntimeWorkspaceStateSaveRequest,
@@ -195,6 +196,7 @@ import {
 	runtimeWorkspaceChangesResponseSchema,
 	runtimeWorkspaceFileSearchRequestSchema,
 	runtimeWorkspaceFileSearchResponseSchema,
+	runtimeWorkspaceSkillScopeSchema,
 	runtimeWorkspaceStateNotifyResponseSchema,
 	runtimeWorkspaceStateResponseSchema,
 	runtimeWorkspaceStateSaveRequestSchema,
@@ -393,15 +395,18 @@ export interface RuntimeTrpcContext {
 		skillsInstall: (
 			scope: RuntimeTrpcWorkspaceScope,
 			input: { source: string; skills?: string[] },
-		) => Promise<{ ok: boolean }>;
+		) => Promise<{ ok: boolean; installedNames: string[]; warnings: string[] }>;
 		skillsCreate: (
 			scope: RuntimeTrpcWorkspaceScope,
 			input: { name: string; description?: string; instructions: string },
 		) => Promise<{ ok: boolean }>;
-		skillsRemove: (scope: RuntimeTrpcWorkspaceScope, input: { name: string }) => Promise<{ ok: boolean }>;
+		skillsRemove: (
+			scope: RuntimeTrpcWorkspaceScope,
+			input: { name: string; scope?: RuntimeWorkspaceSkillScope },
+		) => Promise<{ ok: boolean }>;
 		skillsSetDisabled: (
 			scope: RuntimeTrpcWorkspaceScope,
-			input: { name: string; disabled: boolean },
+			input: { name: string; disabled: boolean; scope?: RuntimeWorkspaceSkillScope },
 		) => Promise<{ ok: boolean }>;
 	};
 	projectsApi: {
@@ -791,11 +796,19 @@ export const runtimeAppRouter = t.router({
 			.mutation(async ({ ctx, input }) => {
 				return await ctx.workspaceApi.skillsCreate(ctx.workspaceScope, input);
 			}),
-		skillsRemove: workspaceProcedure.input(z.object({ name: z.string() })).mutation(async ({ ctx, input }) => {
-			return await ctx.workspaceApi.skillsRemove(ctx.workspaceScope, input);
-		}),
+		skillsRemove: workspaceProcedure
+			.input(z.object({ name: z.string(), scope: runtimeWorkspaceSkillScopeSchema.optional() }))
+			.mutation(async ({ ctx, input }) => {
+				return await ctx.workspaceApi.skillsRemove(ctx.workspaceScope, input);
+			}),
 		skillsSetDisabled: workspaceProcedure
-			.input(z.object({ name: z.string(), disabled: z.boolean() }))
+			.input(
+				z.object({
+					name: z.string(),
+					disabled: z.boolean(),
+					scope: runtimeWorkspaceSkillScopeSchema.optional(),
+				}),
+			)
 			.mutation(async ({ ctx, input }) => {
 				return await ctx.workspaceApi.skillsSetDisabled(ctx.workspaceScope, input);
 			}),

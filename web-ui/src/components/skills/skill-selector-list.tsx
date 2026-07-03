@@ -3,7 +3,7 @@ import { ChevronRight, HelpCircle } from "lucide-react";
 import type { ReactElement } from "react";
 import { useMemo } from "react";
 
-import { groupSkillsBySource } from "@/components/skills/skill-grouping";
+import { groupSkillsBySource, isGlobalSkill } from "@/components/skills/skill-grouping";
 import { SkillSwitch } from "@/components/skills/skill-switch";
 import { Tooltip } from "@/components/ui/tooltip";
 import type { RuntimeWorkspaceSkill } from "@/runtime/types";
@@ -31,10 +31,17 @@ export function SkillSelectorList({
 	idPrefix = "task-skill",
 }: SkillSelectorListProps): ReactElement | null {
 	// Only enabled skills are selectable per task; disabling a skill in settings hides it here.
+	// Task selections are name-keyed and injection resolves collisions project-first, so a
+	// global skill shadowed by a same-named project skill is dropped (the project row is the
+	// one that would actually be injected).
 	// Within each source group, surface the skills used most often in this workspace first.
 	const skillUsageCounts = useMemo(() => readSkillUsageCounts(workspaceId), [workspaceId]);
 	const skillGroups = useMemo(() => {
-		const groups = groupSkillsBySource(workspaceSkills.filter((skill) => !skill.disabled));
+		const projectNames = new Set(workspaceSkills.filter((skill) => !isGlobalSkill(skill)).map((skill) => skill.name));
+		const selectable = workspaceSkills.filter(
+			(skill) => !skill.disabled && !(isGlobalSkill(skill) && projectNames.has(skill.name)),
+		);
+		const groups = groupSkillsBySource(selectable);
 		return groups.map((group) => ({
 			...group,
 			skills: [...group.skills].sort((a, b) => (skillUsageCounts[b.name] ?? 0) - (skillUsageCounts[a.name] ?? 0)),

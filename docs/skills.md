@@ -24,7 +24,6 @@ Two facts drive most of the design:
    (`~/.claude/skills`, `~/.agents/skills`, plugins for Claude Code; `~/.cline/skills`,
    `.agents/skills`, `.claude/skills` for Cline). Per-task selection therefore can only
    *add* skills by copying them in, and *hide* others where an agent exposes a knob.
-
 ## Data model
 
 `RuntimeWorkspaceSkill` (`src/core/api-contract.ts`) is the canonical shape:
@@ -33,17 +32,39 @@ Two facts drive most of the design:
 | -------------- | -------------------------------------------------------------- |
 | `name`         | `SKILL.md` frontmatter `name` (sanitized)                      |
 | `description`  | `SKILL.md` frontmatter                                          |
-| `disabled`     | `SKILL.md` frontmatter (`disabled: true`)                       |
+| `disabled`     | sidecar (`.agents/skills-meta.json`), legacy frontmatter as fallback |
 | `dirPath`      | absolute path on disk                                           |
-| `installedFrom`| `skills-lock.json` source for the skill (legacy `SKILL.md` frontmatter as fallback) |
-| `installedAt`  | `SKILL.md` frontmatter — ISO timestamp stamped at install time |
+| `scope`        | `"project"` (workspace dirs) or `"global"` (home dirs)        |
+| `installedFrom`| sidecar → `skills-lock.json` → legacy frontmatter              |
+| `installedAt`  | sidecar → legacy frontmatter                                    |
 
-`installedFrom` powers source grouping; `installedAt` powers the "NEW" badge. The source is
-**read from the `skills` CLI's own `skills-lock.json`** (keyed by skill name, written
-additively on every install) rather than re-derived — this is the tool's source of truth, so
-installing a second collection can no longer overwrite the first's grouping. `installedAt` is
-still a Kanban-stamped frontmatter field (the same channel as `disabled`), applied only to the
-just-installed source's skills that lack one.
+`installedFrom` powers source grouping; `installedAt` powers the "NEW" badge (48h window).
+
+### The metadata sidecar
+
+Kanban-owned skill metadata lives in **`.agents/skills-meta.json`** (git-excluded like the
+skill files), with separate `project` and `global` maps keyed by skill name. Kanban never
+writes into `SKILL.md`: frontmatter stamping invalidated the `skills` CLI's `computedHash`
+integrity record and only landed on one of the two installed copies. Legacy frontmatter
+fields (`installedFrom`/`installedAt`/`disabled`) are still read as fallbacks, and the
+first listing backfills lock/frontmatter attribution into the sidecar.
+
+The `skills` CLI's own `skills-lock.json` is treated as *enrichment*, not the source of
+truth: it is untracked **and** git-excluded, so `git clean`/branch churn can delete it at
+any time (this happened in practice and silently collapsed all grouping to "Other
+skills"). The sidecar is written from an install-time disk diff, so grouping and the NEW
+badge no longer depend on the lock surviving.
+
+### Scopes
+
+Listing walks project dirs (`.agents/skills`, `.claude/skills`) *and* global dirs
+(`~/.claude/skills`, `~/.config/claude/skills`, `~/.agents/skills`), tagging each skill
+with its `scope`. Name dedup happens only **within** a scope (`.agents` beats `.claude` —
+they're two copies of the same install). A project and a global skill with the same name
+are **both listed**; name-keyed consumers (injection, task selections) resolve
+project-first. Dot-directories (e.g. gstack's `.gstack-<v>.bak` backups) are skipped.
+Global skills can be enabled/disabled per-workspace (stored in the sidecar's `global`
+map, never written into the home directory) but **cannot be deleted from Kanban**.
 
 ## Install flow
 
@@ -54,32 +75,48 @@ just-installed source's skills that lack one.
    a skills.sh URL (`https://www.skills.sh/owner/repo[/skill]`), a GitHub URL, or a bare
    `owner/repo` slug into `{ repo, skill? }`. A skill named in the URL becomes a `--skill`
    filter unless the caller passed explicit `skillNames`.
-2. Run `npx skills add <repo> --agent claude-code --agent cline --copy --yes -p [--skill …]`.
-   The CLI records each installed skill's source in `skills-lock.json`.
-3. Stamp `installedAt` onto skills the lock attributes to this `repo` that don't have one
-   yet (`stampInstallTimestamps`). Grouping (`installedFrom`) comes from the lock, so nothing
-   is stamped for it and other sources' skills are never touched.
-4. Call `ensureSkillGitExcludes(workspacePath)` so the freshly-written skill files don't
+2. Snapshot the on-disk project skill set, then run
+   `npx skills add <repo> --agent claude-code --agent cline --copy --yes -p [--skill …]`.
+   CLI failures are rewritten into readable errors (`formatSkillsCliError`) — e.g. the
+   CLI's "No matching skills found for: …" plus the available names — instead of a raw
+   exec dump.
+3. Diff the disk again and return `{ installedNames, warnings }`. The diff (not the CLI
+   exit code) decides what was installed: the CLI exits 0 even when a "whole collection"
+   contains a single skill or everything already existed. Warnings flag installs that
+   overwrote a same-named skill from another source and installs that shadow a global
+   skill. The UI toasts report exactly this instead of a blanket "installed successfully".
+4. Stamp `installedFrom` + `installedAt` for the newly added names into the sidecar.
+5. Call `ensureSkillGitExcludes(workspacePath)` so the freshly-written skill files don't
    show up as project changes (see [Diff hygiene](#diff-hygiene)).
 
-`listSkills` reads skill directories **directly from disk** — the project's `.agents/skills`
-and `.claude/skills` plus the user's global `~/.claude/skills`, `~/.config/claude/skills`, and
-`~/.agents/skills` — parsing each `SKILL.md` the same way the CLI does (a listable skill needs
-a non-empty `name` and `description`; `metadata.internal` skills are hidden), deduping by name
-with project scope winning. This avoids the slow `npx skills list` cold-start on a hot path. A
-short-lived (3s) in-memory cache, invalidated by every mutation below, coalesces the picker
-and Settings panel both listing at once. `createSkill`, `removeSkill`, and `setSkillDisabled`
-round out the CRUD surface (these still shell out to the CLI / write files). All of this is
-exposed over tRPC as `workspace.skills{List,Install,Create,Remove,SetDisabled}`
+`listSkills` reads skill directories **directly from disk** (see [Scopes](#scopes)),
+parsing each `SKILL.md` the same way the CLI does (a listable skill needs a non-empty
+`name` and `description`; `metadata.internal` skills are hidden). This avoids the slow
+`npx skills list` cold-start on a hot path. A short-lived (3s) in-memory cache,
+invalidated by every mutation below, coalesces the picker and Settings panel both listing
+at once. `createSkill`, `removeSkill`, and `setSkillDisabled` round out the CRUD surface.
+All of this is exposed over tRPC as `workspace.skills{List,Install,Create,Remove,SetDisabled}`
 (`src/trpc/app-router.ts` → `src/trpc/workspace-api.ts`).
+
+## Remove flow
+
+`removeSkill` never trusts the CLI: `npx skills remove <name> -p` **exits 0 even when it
+removes nothing** (e.g. the name only matches a global skill), which used to make deleted
+skills "come back" after the optimistic UI reconciled. The flow is: refuse global-scope
+targets outright (Kanban never deletes outside the project), run the CLI remove, then
+post-verify by force-removing any remaining `.agents/skills/<name>` and
+`.claude/skills/<name>` copies, and clean up the skill's `skills-lock.json` and sidecar
+entries. The Settings panel refetches from disk after a successful remove rather than
+trusting its optimistic state.
 
 ## UI
 
 - **Settings → Skills** is a top-level settings entity (`runtime-settings-dialog.tsx`),
   rendered by `web-ui/src/components/workspace-skills-panel.tsx`. Skills are shown in
-  collapsible groups keyed by `installedFrom`, each with a group-level enable/disable
-  toggle; recently-installed skills get a "NEW" badge (48h window). Toggling and deleting
-  are **optimistic**.
+  collapsible groups keyed by `installedFrom`, with "Other skills" and then "Global
+  skills" always last; recently-installed skills get a "NEW" badge (48h window, driven by
+  the sidecar `installedAt`). Global rows show a globe icon instead of a delete button.
+  Toggling is **optimistic**; deleting reconciles with a refetch.
 - Both the Settings panel and the per-task picker read the list through a shared
   stale-while-revalidate cache (`web-ui/src/runtime/workspace-skills-cache.ts`): the result
   is cached per workspace, reused across mounts, prefetched on board load (`App.tsx`), and
@@ -87,7 +124,15 @@ exposed over tRPC as `workspace.skills{List,Install,Create,Remove,SetDisabled}`
   re-fetching each time.
 - **Per-task selection** lives in the task's Advanced tab
   (`web-ui/src/components/task-agent-model-picker.tsx`): the same source groups, a
-  per-group select-all toggle, and only *enabled* skills are offered.
+  per-group select-all toggle, and only *enabled* skills are offered. Global skills are
+  selectable (injection copies from their absolute path), except globals shadowed by a
+  same-named project skill — selections are name-keyed and the project copy would win,
+  so the shadowed row is dropped rather than shown as a dead toggle.
+- **Changing skills on a running task** (`task-skills-button.tsx` in the card detail
+  control bar) syncs the worktree files, then — for CLI agents, which snapshot their
+  skill list at process start — prompts a confirm-then-restart (reusing the env-restart
+  machinery via `onRestartTaskEnv`; the agent resumes its persisted session). The
+  in-process Cline agent needs no restart.
 - Shared helpers are in `web-ui/src/components/skills/` (`skill-grouping.ts`,
   `skill-new-badge.tsx`, `skill-switch.tsx`). The grouping/URL-parsing logic is imported
   from the backend contract via the `@runtime-contract` Vite alias.
@@ -176,3 +221,9 @@ Two properties make this safe and broad:
 - Listing reads from disk and is cached, so it no longer pays the `npx skills list`
   cold-start. The trade-off: skill installs/edits made **outside** Kanban (or directly via
   the CLI) only show up after a Kanban mutation or once the 3s server cache expires.
+- A repo is only as installable as the `skills` CLI sees it: some collections (e.g.
+  `garrytan/gstack`) expose a single root `SKILL.md` to the CLI even though skills.sh
+  renders per-skill pages, so "install whole collection" legitimately yields one skill.
+  Kanban now reports exactly what was installed instead of pretending otherwise.
+- Task skill selections are name-keyed; a global skill shadowed by a same-named project
+  skill cannot be selected independently.
