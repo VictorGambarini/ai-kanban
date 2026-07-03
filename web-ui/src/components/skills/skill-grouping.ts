@@ -6,6 +6,15 @@ export const SKILL_NEW_WINDOW_MS = 48 * 60 * 60 * 1000;
 /** Group label used for skills with no recorded install source (locally-created or legacy). */
 export const OTHER_SKILLS_GROUP = "Other skills";
 
+/** Group label for skills discovered in the user's home directories rather than the project. */
+export const GLOBAL_SKILLS_GROUP = "Global skills";
+
+/** Returns true when the skill lives outside the project (user-level install). */
+export function isGlobalSkill(skill: RuntimeWorkspaceSkill): boolean {
+	// Older runtimes don't send `scope`; everything they list is treated as project.
+	return skill.scope === "global";
+}
+
 export interface SkillGroup {
 	/** The install source slug (e.g. "anthropics/skills"), or OTHER_SKILLS_GROUP. */
 	label: string;
@@ -25,14 +34,14 @@ export function isSkillNew(skill: RuntimeWorkspaceSkill, now: number = Date.now(
 }
 
 /**
- * Groups skills by their install source. Sourced groups come first (alphabetical),
- * with the "Other skills" group always last. Skills keep their original relative order
- * within a group.
+ * Groups skills by their install source. Sourced groups come first (alphabetical), then
+ * the "Other skills" group, then the "Global skills" group (home-directory installs)
+ * always last. Skills keep their original relative order within a group.
  */
 export function groupSkillsBySource(skills: RuntimeWorkspaceSkill[]): SkillGroup[] {
 	const groups = new Map<string, RuntimeWorkspaceSkill[]>();
 	for (const skill of skills) {
-		const label = skill.installedFrom ?? OTHER_SKILLS_GROUP;
+		const label = isGlobalSkill(skill) ? GLOBAL_SKILLS_GROUP : (skill.installedFrom ?? OTHER_SKILLS_GROUP);
 		const existing = groups.get(label);
 		if (existing) {
 			existing.push(skill);
@@ -40,11 +49,8 @@ export function groupSkillsBySource(skills: RuntimeWorkspaceSkill[]): SkillGroup
 			groups.set(label, [skill]);
 		}
 	}
+	const rank = (label: string): number => (label === GLOBAL_SKILLS_GROUP ? 2 : label === OTHER_SKILLS_GROUP ? 1 : 0);
 	return [...groups.entries()]
 		.map(([label, groupSkills]) => ({ label, skills: groupSkills }))
-		.sort((a, b) => {
-			if (a.label === OTHER_SKILLS_GROUP) return 1;
-			if (b.label === OTHER_SKILLS_GROUP) return -1;
-			return a.label.localeCompare(b.label);
-		});
+		.sort((a, b) => rank(a.label) - rank(b.label) || a.label.localeCompare(b.label));
 }

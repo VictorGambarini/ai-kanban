@@ -1,10 +1,10 @@
 import * as Collapsible from "@radix-ui/react-collapsible";
 import { parseSkillsShSource } from "@runtime-contract";
-import { ChevronRight, ExternalLink, Plus, Trash2 } from "lucide-react";
+import { ChevronRight, ExternalLink, Globe, Plus, Trash2 } from "lucide-react";
 import type { ReactElement } from "react";
 import { useCallback, useEffect, useId, useMemo, useState } from "react";
 import { showAppToast } from "@/components/app-toaster";
-import { groupSkillsBySource, isSkillNew } from "@/components/skills/skill-grouping";
+import { groupSkillsBySource, isGlobalSkill, isSkillNew } from "@/components/skills/skill-grouping";
 import { SkillNewBadge } from "@/components/skills/skill-new-badge";
 import { SkillSwitch } from "@/components/skills/skill-switch";
 import { Button } from "@/components/ui/button";
@@ -142,23 +142,34 @@ export function WorkspaceSkillsPanel({ workspaceId }: WorkspaceSkillsPanelProps)
 	// toggles, and removals made here (and vice versa) without a stale re-fetch.
 	const { skills, isLoading, setSkills, refetch: loadSkills } = useWorkspaceSkills(workspaceId);
 
-	// Optimistic so the UI feels instant: the `skills list` CLI is slow (1-2s), so we
-	// update local state immediately and reconcile only on failure.
+	// A project and a global skill can share a name, so optimistic updates and mutations
+	// must always match on name *and* scope.
+	const sameSkill = useCallback(
+		(a: RuntimeWorkspaceSkill, b: RuntimeWorkspaceSkill) => a.name === b.name && a.scope === b.scope,
+		[],
+	);
+
+	// Optimistic so the UI feels instant: we update local state immediately and
+	// reconcile only on failure.
 	const handleToggleDisabled = useCallback(
 		async (skill: RuntimeWorkspaceSkill) => {
 			if (!workspaceId) return;
 			const nextDisabled = !skill.disabled;
-			setSkills((prev) => prev.map((s) => (s.name === skill.name ? { ...s, disabled: nextDisabled } : s)));
+			setSkills((prev) => prev.map((s) => (sameSkill(s, skill) ? { ...s, disabled: nextDisabled } : s)));
 			try {
 				const trpc = getRuntimeTrpcClient(workspaceId);
-				await trpc.workspace.skillsSetDisabled.mutate({ name: skill.name, disabled: nextDisabled });
+				await trpc.workspace.skillsSetDisabled.mutate({
+					name: skill.name,
+					disabled: nextDisabled,
+					scope: skill.scope,
+				});
 			} catch (error) {
-				setSkills((prev) => prev.map((s) => (s.name === skill.name ? { ...s, disabled: skill.disabled } : s)));
+				setSkills((prev) => prev.map((s) => (sameSkill(s, skill) ? { ...s, disabled: skill.disabled } : s)));
 				const message = error instanceof Error ? error.message : String(error);
 				showAppToast({ message: `Failed to update skill: ${message}`, intent: "danger" });
 			}
 		},
-		[workspaceId],
+		[workspaceId, sameSkill],
 	);
 
 	// Enable/disable every skill in a source group at once.
@@ -167,37 +178,45 @@ export function WorkspaceSkillsPanel({ workspaceId }: WorkspaceSkillsPanelProps)
 			if (!workspaceId) return;
 			const targets = groupSkills.filter((s) => s.disabled !== nextDisabled);
 			if (targets.length === 0) return;
-			const names = new Set(targets.map((s) => s.name));
-			setSkills((prev) => prev.map((s) => (names.has(s.name) ? { ...s, disabled: nextDisabled } : s)));
+			setSkills((prev) =>
+				prev.map((s) => (targets.some((t) => sameSkill(t, s)) ? { ...s, disabled: nextDisabled } : s)),
+			);
 			try {
 				const trpc = getRuntimeTrpcClient(workspaceId);
 				await Promise.all(
-					targets.map((s) => trpc.workspace.skillsSetDisabled.mutate({ name: s.name, disabled: nextDisabled })),
+					targets.map((s) =>
+						trpc.workspace.skillsSetDisabled.mutate({ name: s.name, disabled: nextDisabled, scope: s.scope }),
+					),
 				);
 			} catch (error) {
-				setSkills((prev) => prev.map((s) => (names.has(s.name) ? { ...s, disabled: !nextDisabled } : s)));
+				setSkills((prev) =>
+					prev.map((s) => (targets.some((t) => sameSkill(t, s)) ? { ...s, disabled: !nextDisabled } : s)),
+				);
 				const message = error instanceof Error ? error.message : String(error);
 				showAppToast({ message: `Failed to update skills: ${message}`, intent: "danger" });
 			}
 		},
-		[workspaceId],
+		[workspaceId, sameSkill],
 	);
 
 	const handleRemove = useCallback(
-		async (name: string) => {
+		async (skill: RuntimeWorkspaceSkill) => {
 			if (!workspaceId) return;
 			const previous = skills;
-			setSkills((prev) => prev.filter((s) => s.name !== name));
+			setSkills((prev) => prev.filter((s) => !sameSkill(s, skill)));
 			try {
 				const trpc = getRuntimeTrpcClient(workspaceId);
-				await trpc.workspace.skillsRemove.mutate({ name });
+				await trpc.workspace.skillsRemove.mutate({ name: skill.name, scope: skill.scope });
+				// Reconcile from disk rather than trusting the optimistic state: a copy in
+				// another location (or a global skill with the same name) may still exist.
+				void loadSkills();
 			} catch (error) {
 				setSkills(previous);
 				const message = error instanceof Error ? error.message : String(error);
 				showAppToast({ message: `Failed to remove skill: ${message}`, intent: "danger" });
 			}
 		},
-		[workspaceId, skills],
+		[workspaceId, skills, sameSkill, loadSkills],
 	);
 
 	const performInstall = useCallback(
@@ -206,11 +225,29 @@ export function WorkspaceSkillsPanel({ workspaceId }: WorkspaceSkillsPanelProps)
 			setIsInstalling(true);
 			try {
 				const trpc = getRuntimeTrpcClient(workspaceId);
-				await trpc.workspace.skillsInstall.mutate(skills ? { source, skills } : { source });
+				const result = await trpc.workspace.skillsInstall.mutate(skills ? { source, skills } : { source });
 				setInstallSource("");
 				setInstallChoice(null);
 				await loadSkills();
-				showAppToast({ message: "Skill installed successfully", intent: "success" });
+				// Report what actually happened: the CLI succeeds even when a source
+				// exposes fewer skills than expected or everything was already installed.
+				const installedNames = result.installedNames ?? [];
+				if (installedNames.length === 0) {
+					showAppToast({
+						message: "No new skills were installed — everything from this source is already present.",
+						intent: "warning",
+					});
+				} else {
+					const shown = installedNames.slice(0, 6).join(", ");
+					const suffix = installedNames.length > 6 ? `, +${installedNames.length - 6} more` : "";
+					showAppToast({
+						message: `Installed ${installedNames.length} skill${installedNames.length === 1 ? "" : "s"}: ${shown}${suffix}`,
+						intent: "success",
+					});
+				}
+				for (const warning of result.warnings ?? []) {
+					showAppToast({ message: warning, intent: "warning" });
+				}
 			} catch (error) {
 				const message = error instanceof Error ? error.message : String(error);
 				showAppToast({ message: `Install failed: ${message}`, intent: "danger" });
@@ -312,7 +349,7 @@ export function WorkspaceSkillsPanel({ workspaceId }: WorkspaceSkillsPanelProps)
 								<Collapsible.Content className="flex flex-col gap-1 pt-0.5">
 									{group.skills.map((skill) => (
 										<div
-											key={skill.name}
+											key={`${skill.scope ?? "project"}:${skill.name}`}
 											className="flex items-center gap-3 rounded-md border border-border bg-surface-0 px-3 py-2"
 										>
 											<div className="flex-1 min-w-0">
@@ -337,13 +374,25 @@ export function WorkspaceSkillsPanel({ workspaceId }: WorkspaceSkillsPanelProps)
 												checked={!skill.disabled}
 												onCheckedChange={() => void handleToggleDisabled(skill)}
 											/>
-											<Button
-												variant="ghost"
-												size="sm"
-												icon={<Trash2 size={14} />}
-												onClick={() => void handleRemove(skill.name)}
-												className="text-text-secondary hover:text-status-red flex-shrink-0"
-											/>
+											{isGlobalSkill(skill) ? (
+												// Global skills live in the user's home directory and may be
+												// shared across projects — Kanban never deletes them.
+												<Tooltip
+													content={`Installed globally (${skill.dirPath}). Kanban can't delete global skills.`}
+												>
+													<span className="flex-shrink-0 text-text-tertiary">
+														<Globe size={14} />
+													</span>
+												</Tooltip>
+											) : (
+												<Button
+													variant="ghost"
+													size="sm"
+													icon={<Trash2 size={14} />}
+													onClick={() => void handleRemove(skill)}
+													className="text-text-secondary hover:text-status-red flex-shrink-0"
+												/>
+											)}
 										</div>
 									))}
 								</Collapsible.Content>

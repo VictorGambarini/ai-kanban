@@ -9,6 +9,7 @@ import type {
 	RuntimeTaskSessionSummary,
 	RuntimeWorkspaceChangesMode,
 	RuntimeWorkspaceFileSearchResponse,
+	RuntimeWorkspaceSkillScope,
 	RuntimeWorkspaceStateResponse,
 } from "../core/api-contract";
 import {
@@ -452,8 +453,8 @@ export function createWorkspaceApi(deps: CreateWorkspaceApiDependencies): Runtim
 			if (!source) {
 				throw new TRPCError({ code: "BAD_REQUEST", message: "source is required" });
 			}
-			await installSkill(workspaceScope.workspacePath, source, input.skills);
-			return { ok: true };
+			const result = await installSkill(workspaceScope.workspacePath, source, input.skills);
+			return { ok: true, installedNames: result.installedNames, warnings: result.warnings };
 		},
 		skillsCreate: async (workspaceScope, input: { name: string; description?: string; instructions: string }) => {
 			const name = input.name.trim();
@@ -467,12 +468,20 @@ export function createWorkspaceApi(deps: CreateWorkspaceApiDependencies): Runtim
 			});
 			return { ok: true };
 		},
-		skillsRemove: async (workspaceScope, input: { name: string }) => {
-			await removeSkill(workspaceScope.workspacePath, input.name);
+		skillsRemove: async (workspaceScope, input: { name: string; scope?: RuntimeWorkspaceSkillScope }) => {
+			if (input.scope === "global") {
+				// Kanban never deletes files outside the project; the UI hides delete for
+				// global skills, so this only guards direct API calls.
+				throw new TRPCError({ code: "BAD_REQUEST", message: "Global skills cannot be removed from Kanban." });
+			}
+			await removeSkill(workspaceScope.workspacePath, input.name, input.scope);
 			return { ok: true };
 		},
-		skillsSetDisabled: async (workspaceScope, input: { name: string; disabled: boolean }) => {
-			await setSkillDisabled(workspaceScope.workspacePath, input.name, input.disabled);
+		skillsSetDisabled: async (
+			workspaceScope,
+			input: { name: string; disabled: boolean; scope?: RuntimeWorkspaceSkillScope },
+		) => {
+			await setSkillDisabled(workspaceScope.workspacePath, input.name, input.disabled, input.scope);
 			return { ok: true };
 		},
 	};
