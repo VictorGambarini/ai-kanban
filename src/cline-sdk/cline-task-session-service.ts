@@ -27,6 +27,8 @@ import {
 	type ClineSessionRuntime,
 	type CreateInMemoryClineSessionRuntimeOptions,
 	createInMemoryClineSessionRuntime,
+	isUnsupportedImageContentError,
+	UNSUPPORTED_IMAGE_ATTACHMENT_MESSAGE,
 } from "./cline-session-runtime";
 import {
 	type ClineTaskMessage,
@@ -462,6 +464,9 @@ export class InMemoryClineTaskSessionService implements ClineTaskSessionService 
 
 				const initialAgentText = readAgentResultText(startResult.result);
 				if (initialAgentText) {
+					if (hasRequestImages && isUnsupportedImageContentError(initialAgentText)) {
+						throw new Error(UNSUPPORTED_IMAGE_ATTACHMENT_MESSAGE);
+					}
 					const assistantCountAfterStart = entry.messages.filter((message) => message.role === "assistant").length;
 					if (assistantCountAfterStart > assistantCountBeforeStart) {
 						return;
@@ -656,6 +661,9 @@ export class InMemoryClineTaskSessionService implements ClineTaskSessionService 
 					}
 					const agentText = readAgentResultText(result);
 					if (agentText) {
+						if (hasImages && isUnsupportedImageContentError(agentText)) {
+							throw new Error(UNSUPPORTED_IMAGE_ATTACHMENT_MESSAGE);
+						}
 						const assistantCountAfterSend = entry.messages.filter(
 							(message) => message.role === "assistant",
 						).length;

@@ -849,6 +849,131 @@ describe("InMemoryClineSessionRuntime", () => {
 		});
 	});
 
+	it("translates an unsupported-image provider rejection into a friendly error on the initial turn", async () => {
+		const fakeHost = {
+			start: vi.fn(async (input: { config?: { sessionId?: string } }) => ({
+				sessionId: input.config?.sessionId ?? "session-1",
+				result: {},
+			})),
+			send: vi.fn(async () => {
+				throw new Error(
+					"Failed to deserialize the JSON body into the target type: messages[57]: unknown variant `image_url`, expected `text` at line 1 column 237796",
+				);
+			}),
+			stop: vi.fn(async () => {}),
+			abort: vi.fn(async () => {}),
+			delete: vi.fn(async () => true),
+			dispose: vi.fn(async () => {}),
+			get: vi.fn(async () => undefined),
+			list: vi.fn(async () => []),
+			readMessages: vi.fn(async () => []),
+			subscribe: vi.fn(() => () => {}),
+		};
+
+		const runtime = createInMemoryClineSessionRuntime({
+			createSessionHost: async () => fakeHost,
+			createMcpRuntimeService: createNoopMcpRuntimeService,
+		});
+
+		await expect(
+			runtime.startTaskSession({
+				taskId: "task-1",
+				cwd: "/tmp/worktree",
+				prompt: "Take a look at this screenshot",
+				images: [{ id: "img-1", data: "abc123", mimeType: "image/png" }],
+				providerId: "cline",
+				modelId: "anthropic/claude-sonnet-4.6",
+				systemPrompt: "You are a helpful coding assistant.",
+			}),
+		).rejects.toThrow(
+			"The selected model or provider doesn't support image attachments. Remove the image(s) or choose a vision-capable model, then try again.",
+		);
+	});
+
+	it("translates an unsupported-image provider rejection into a friendly error on follow-up input", async () => {
+		const fakeHost = {
+			start: vi.fn(async (input: { config?: { sessionId?: string } }) => ({
+				sessionId: input.config?.sessionId ?? "session-1",
+				result: {},
+			})),
+			send: vi
+				.fn()
+				.mockResolvedValueOnce({})
+				.mockRejectedValueOnce(
+					new Error(
+						"Failed to deserialize the JSON body into the target type: messages[57]: unknown variant `image_url`, expected `text` at line 1 column 237796",
+					),
+				),
+			stop: vi.fn(async () => {}),
+			abort: vi.fn(async () => {}),
+			delete: vi.fn(async () => true),
+			dispose: vi.fn(async () => {}),
+			get: vi.fn(async () => undefined),
+			list: vi.fn(async () => []),
+			readMessages: vi.fn(async () => []),
+			subscribe: vi.fn(() => () => {}),
+		};
+
+		const runtime = createInMemoryClineSessionRuntime({
+			createSessionHost: async () => fakeHost,
+			createMcpRuntimeService: createNoopMcpRuntimeService,
+		});
+
+		await runtime.startTaskSession({
+			taskId: "task-1",
+			cwd: "/tmp/worktree",
+			prompt: "Investigate startup",
+			providerId: "cline",
+			modelId: "anthropic/claude-sonnet-4.6",
+			systemPrompt: "You are a helpful coding assistant.",
+		});
+
+		await expect(
+			runtime.sendTaskSessionInput("task-1", "Here is a screenshot of the bug", undefined, [
+				{ id: "img-1", data: "abc123", mimeType: "image/png" },
+			]),
+		).rejects.toThrow(
+			"The selected model or provider doesn't support image attachments. Remove the image(s) or choose a vision-capable model, then try again.",
+		);
+	});
+
+	it("leaves unrelated send errors untouched even when images are attached", async () => {
+		const fakeHost = {
+			start: vi.fn(async (input: { config?: { sessionId?: string } }) => ({
+				sessionId: input.config?.sessionId ?? "session-1",
+				result: {},
+			})),
+			send: vi.fn(async () => {
+				throw new Error("Network request failed");
+			}),
+			stop: vi.fn(async () => {}),
+			abort: vi.fn(async () => {}),
+			delete: vi.fn(async () => true),
+			dispose: vi.fn(async () => {}),
+			get: vi.fn(async () => undefined),
+			list: vi.fn(async () => []),
+			readMessages: vi.fn(async () => []),
+			subscribe: vi.fn(() => () => {}),
+		};
+
+		const runtime = createInMemoryClineSessionRuntime({
+			createSessionHost: async () => fakeHost,
+			createMcpRuntimeService: createNoopMcpRuntimeService,
+		});
+
+		await expect(
+			runtime.startTaskSession({
+				taskId: "task-1",
+				cwd: "/tmp/worktree",
+				prompt: "Take a look at this screenshot",
+				images: [{ id: "img-1", data: "abc123", mimeType: "image/png" }],
+				providerId: "cline",
+				modelId: "anthropic/claude-sonnet-4.6",
+				systemPrompt: "You are a helpful coding assistant.",
+			}),
+		).rejects.toThrow("Network request failed");
+	});
+
 	it("disposes the shared host and clears task mappings", async () => {
 		const fakeHost = {
 			start: vi.fn(async (input: { config?: { sessionId?: string } }) => ({
