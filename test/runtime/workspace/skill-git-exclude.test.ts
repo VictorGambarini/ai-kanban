@@ -49,6 +49,27 @@ describe("ensureSkillGitExcludes", () => {
 		expect(stdout).not.toContain(".agents/skills");
 	});
 
+	it("backfills patterns missing from an older managed block instead of no-opping", async () => {
+		const excludePath = join(repo, ".git/info/exclude");
+		const staleBlock = [
+			"# kanban-managed-skill-paths:start",
+			"# Hide Kanban-injected skill files from task diffs.",
+			"/.agents/skills/",
+			"/.claude/skills/",
+			"# kanban-managed-skill-paths:end",
+		].join("\n");
+		await execFileAsync("mkdir", ["-p", join(repo, ".git/info")]);
+		const fs = await import("node:fs/promises");
+		await fs.writeFile(excludePath, `${staleBlock}\n`, "utf8");
+
+		await ensureSkillGitExcludes(repo);
+
+		const content = await readFile(excludePath, "utf8");
+		expect(content).toContain("/skills-lock.json");
+		const occurrences = content.split("# kanban-managed-skill-paths:start").length - 1;
+		expect(occurrences).toBe(1);
+	});
+
 	it("no-ops outside a git repository", async () => {
 		const nonRepo = await mkdtemp(join(tmpdir(), "skill-exclude-nonrepo-"));
 		try {

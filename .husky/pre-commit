@@ -1,6 +1,6 @@
 #!/bin/sh
 
-STAGED_FILES=$(git diff --cached --name-only)
+STAGED_FILES=$(git diff --cached --name-only --diff-filter=d)
 
 echo "Running biome check on staged files..."
 npx biome check --staged --no-errors-on-unmatched --files-ignore-unknown=true

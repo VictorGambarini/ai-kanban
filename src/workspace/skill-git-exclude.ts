@@ -40,17 +40,31 @@ export async function ensureSkillGitExcludes(repoPath: string): Promise<void> {
 	const excludePath = isAbsolute(excludePathOutput) ? excludePathOutput : join(repoPath, excludePathOutput);
 
 	const existing = await readFile(excludePath, "utf8").catch(() => "");
-	if (existing.includes(BLOCK_START)) {
-		return;
-	}
-
 	const block = [
 		BLOCK_START,
 		"# Hide Kanban-injected skill files from task diffs.",
 		...SKILL_EXCLUDE_PATTERNS,
 		BLOCK_END,
 	].join("\n");
-	const trimmed = existing.replace(/\n+$/, "");
-	const nextContent = trimmed ? `${trimmed}\n\n${block}\n` : `${block}\n`;
+
+	const blockStartIndex = existing.indexOf(BLOCK_START);
+	if (blockStartIndex === -1) {
+		const trimmed = existing.replace(/\n+$/, "");
+		const nextContent = trimmed ? `${trimmed}\n\n${block}\n` : `${block}\n`;
+		await lockedFileSystem.writeTextFileAtomic(excludePath, nextContent);
+		return;
+	}
+
+	// A managed block from an older Kanban version may be missing patterns that were
+	// added later (e.g. `/skills-lock.json`), so replace it in place rather than no-op.
+	const blockEndIndex = existing.indexOf(BLOCK_END, blockStartIndex);
+	if (blockEndIndex === -1) {
+		return;
+	}
+	const existingBlock = existing.slice(blockStartIndex, blockEndIndex + BLOCK_END.length);
+	if (existingBlock === block) {
+		return;
+	}
+	const nextContent = existing.slice(0, blockStartIndex) + block + existing.slice(blockEndIndex + BLOCK_END.length);
 	await lockedFileSystem.writeTextFileAtomic(excludePath, nextContent);
 }
