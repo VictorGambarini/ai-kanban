@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.1.76]
+
+- Fixed skills with the same name silently hiding each other (for example a globally-installed skill and a project one both named `qa`) — the Skills settings panel now shows project and global (home-directory) skills as separate groups, and both are available when picking skills for a task.
+- Global skills can no longer be accidentally deleted from Kanban — their row shows a globe icon instead of a delete button, since Kanban doesn't manage files outside your project.
+- Deleting a skill is now verified on disk, so removed skills can no longer silently reappear.
+- Installing a skill (or a whole skill collection) now reports exactly what was installed, instead of a blanket "installed successfully" — including a clear message when a source has no matching skills or everything was already installed.
+- Skill source grouping and the "NEW" badge are now stored durably and no longer depend on a file that can be lost to `git clean` or branch churn.
+- Adding or removing skills on a running Claude Code / Codex task now offers to restart the agent so it can actually see the change, instead of silently failing to pick it up.
+- Fixed a bug where creating a skill without a description made it disappear from the list entirely.
+
 ## [0.1.75]
 
 - Fixed native Cline tasks failing to start with `Unknown or disabled provider "openai"` when provider settings were saved under a legacy provider id (for example by the Cline VS Code extension or CLI). Legacy ids such as `openai` are now mapped to their current SDK ids automatically, and existing settings are migrated on startup.
