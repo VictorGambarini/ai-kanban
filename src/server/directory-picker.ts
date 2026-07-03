@@ -1,4 +1,4 @@
-import { spawnSync } from "node:child_process";
+import { spawn } from "node:child_process";
 
 interface DirectoryPickerCommandCandidate {
 	command: string;
@@ -10,7 +10,15 @@ type DirectoryPickerCommandResult =
 	| { kind: "cancelled" }
 	| { kind: "unavailable" };
 
-type RunCommand = (command: string, args: string[]) => ReturnType<typeof spawnSync>;
+interface RunCommandResult {
+	stdout: string;
+	stderr: string;
+	status: number | null;
+	signal: NodeJS.Signals | null;
+	error?: NodeJS.ErrnoException;
+}
+
+type RunCommand = (command: string, args: string[]) => Promise<RunCommandResult>;
 
 interface PickDirectoryPathFromSystemDialogOptions {
 	platform?: NodeJS.Platform;
@@ -35,18 +43,57 @@ function parseChildProcessErrorCode(error: unknown): string | null {
 	return typeof code === "string" ? code : null;
 }
 
-function defaultRunCommand(command: string, args: string[]): ReturnType<typeof spawnSync> {
-	return spawnSync(command, args, {
-		encoding: "utf8",
-		stdio: ["ignore", "pipe", "pipe"],
+// GUI pickers (zenity/kdialog/osascript/powershell) stay open until the user picks
+// a folder or cancels, which can take a while. spawnSync would block Node's
+// single-threaded event loop for that entire wait, freezing the whole runtime
+// server (every task, every websocket, every other request) until the dialog is
+// dismissed. Use async spawn instead so the picker's own wait doesn't stall
+// anything else. A generous timeout still guards the genuine failure mode: no
+// display available at all (e.g. a headless session), where these tools hang
+// forever instead of erroring — long enough to never fire during normal,
+// unhurried folder browsing.
+const DIRECTORY_PICKER_TIMEOUT_MS = 10 * 60 * 1000;
+
+function defaultRunCommand(command: string, args: string[]): Promise<RunCommandResult> {
+	return new Promise((resolve) => {
+		const child = spawn(command, args, { stdio: ["ignore", "pipe", "pipe"] });
+		let stdout = "";
+		let stderr = "";
+		let settled = false;
+
+		const timer = setTimeout(() => {
+			child.kill("SIGKILL");
+		}, DIRECTORY_PICKER_TIMEOUT_MS);
+
+		const settle = (result: RunCommandResult) => {
+			if (settled) {
+				return;
+			}
+			settled = true;
+			clearTimeout(timer);
+			resolve(result);
+		};
+
+		child.stdout?.on("data", (chunk: Buffer) => {
+			stdout += chunk.toString("utf8");
+		});
+		child.stderr?.on("data", (chunk: Buffer) => {
+			stderr += chunk.toString("utf8");
+		});
+		child.on("error", (error: NodeJS.ErrnoException) => {
+			settle({ stdout, stderr, status: null, signal: null, error });
+		});
+		child.on("close", (status, signal) => {
+			settle({ stdout, stderr, status, signal });
+		});
 	});
 }
 
-function runDirectoryPickerCommand(
+async function runDirectoryPickerCommand(
 	candidate: DirectoryPickerCommandCandidate,
 	runCommand: RunCommand,
-): DirectoryPickerCommandResult {
-	const result = runCommand(candidate.command, candidate.args);
+): Promise<DirectoryPickerCommandResult> {
+	const result = await runCommand(candidate.command, candidate.args);
 
 	const errorCode = parseChildProcessErrorCode(result.error);
 	if (errorCode === "ENOENT") {
@@ -59,6 +106,11 @@ function runDirectoryPickerCommand(
 	}
 
 	if (result.signal) {
+		if (result.signal === "SIGKILL") {
+			throw new Error(
+				`Could not open directory picker via ${candidate.command}: timed out waiting for a response (no display available?)`,
+			);
+		}
 		throw new Error(`Directory picker command ${candidate.command} terminated by signal: ${result.signal}`);
 	}
 
@@ -82,15 +134,15 @@ function runDirectoryPickerCommand(
 	return { kind: "selected", path: selectedPath };
 }
 
-export function pickDirectoryPathFromSystemDialog(
+export async function pickDirectoryPathFromSystemDialog(
 	options: PickDirectoryPathFromSystemDialogOptions = {},
-): string | null {
+): Promise<string | null> {
 	const platform = options.platform ?? process.platform;
 	const cwd = options.cwd ?? process.cwd();
 	const runCommand = options.runCommand ?? defaultRunCommand;
 
 	if (platform === "darwin") {
-		const result = runDirectoryPickerCommand(
+		const result = await runDirectoryPickerCommand(
 			{
 				command: "osascript",
 				args: ["-e", 'POSIX path of (choose folder with prompt "Select a project folder")'],
@@ -119,7 +171,7 @@ export function pickDirectoryPathFromSystemDialog(
 		];
 
 		for (const candidate of candidates) {
-			const result = runDirectoryPickerCommand(candidate, runCommand);
+			const result = await runDirectoryPickerCommand(candidate, runCommand);
 			if (result.kind === "unavailable") {
 				continue;
 			}
@@ -145,7 +197,7 @@ export function pickDirectoryPathFromSystemDialog(
 		];
 
 		for (const candidate of candidates) {
-			const result = runDirectoryPickerCommand(candidate, runCommand);
+			const result = await runDirectoryPickerCommand(candidate, runCommand);
 			if (result.kind === "unavailable") {
 				continue;
 			}
