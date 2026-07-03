@@ -752,9 +752,10 @@ export function applyClineSessionEvent(input: ApplyClineSessionEventInput): void
 			return;
 		}
 		clearActiveTurnState(entry);
+		const alreadyFailed = entry.summary.reviewReason === "error";
 		emitSummary(input, {
 			state: interrupted ? "interrupted" : "awaiting_review",
-			reviewReason: interrupted ? "interrupted" : "exit",
+			reviewReason: interrupted ? "interrupted" : alreadyFailed ? "error" : "exit",
 			lastOutputAt: now(),
 		});
 		return;

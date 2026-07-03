@@ -148,6 +148,13 @@ function getCardSessionActivity(summary: RuntimeTaskSessionSummary | undefined):
 	if (isCardCreditLimitError(summary)) {
 		return { dotColor: SESSION_ACTIVITY_COLOR.warning, text: "Out of credits" };
 	}
+	if (summary.reviewReason === "error") {
+		const errorMessage =
+			summary.latestHookActivity?.finalMessage?.trim() ||
+			summary.warningMessage?.trim() ||
+			(typeof summary.exitCode === "number" ? `Task exited with code ${summary.exitCode}` : "Task failed");
+		return { dotColor: SESSION_ACTIVITY_COLOR.error, text: `Failed: ${errorMessage}` };
+	}
 	const hookActivity = summary.latestHookActivity;
 	const activityText = hookActivity?.activityText?.trim();
 	const toolName = hookActivity?.toolName?.trim() ?? null;

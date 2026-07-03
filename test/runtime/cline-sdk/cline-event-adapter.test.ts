@@ -623,6 +623,62 @@ describe("applyClineSessionEvent", () => {
 		expect(result.entry.summary.latestHookActivity?.notificationType).toBe("credit_limit");
 	});
 
+	it("does not clobber reviewReason 'error' when the SDK's terminal 'ended' event follows an agent error", () => {
+		const entry = createEntry("task-1");
+		entry.summary.state = "running";
+
+		const errorResult = applyEvent({
+			entry,
+			event: {
+				type: "agent_event",
+				payload: {
+					sessionId: "session-1",
+					event: {
+						type: "error",
+						error: new Error("Failed to deserialize the JSON body into the target type"),
+						recoverable: false,
+						iteration: 1,
+					},
+				},
+			},
+		});
+		expect(errorResult.entry.summary.reviewReason).toBe("error");
+
+		const endedResult = applyEvent({
+			entry,
+			event: {
+				type: "ended",
+				payload: {
+					sessionId: "session-1",
+					reason: "completed",
+				},
+			},
+		});
+
+		expect(endedResult.entry.summary.reviewReason).toBe("error");
+		expect(endedResult.entry.summary.state).toBe("awaiting_review");
+		expect(endedResult.entry.summary.warningMessage).toContain("Failed to deserialize");
+	});
+
+	it("still sets reviewReason 'exit' when the terminal 'ended' event follows a normal completion", () => {
+		const entry = createEntry("task-1");
+		entry.summary.state = "running";
+
+		const endedResult = applyEvent({
+			entry,
+			event: {
+				type: "ended",
+				payload: {
+					sessionId: "session-1",
+					reason: "completed",
+				},
+			},
+		});
+
+		expect(endedResult.entry.summary.reviewReason).toBe("exit");
+		expect(endedResult.entry.summary.state).toBe("awaiting_review");
+	});
+
 	it("forces credit-limit errors to non-recoverable even when SDK marks them recoverable", () => {
 		const entry = createEntry("task-1");
 		entry.summary.state = "running";

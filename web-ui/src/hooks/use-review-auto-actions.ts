@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef } from "react";
 
 import type { TaskGitAction } from "@/git-actions/build-task-git-action-prompt";
+import type { RuntimeTaskSessionSummary } from "@/runtime/types";
 import { findCardSelection } from "@/state/board-state";
 import { getTaskWorkspaceSnapshot, subscribeToAnyTaskMetadata } from "@/stores/workspace-metadata-store";
 import type { BoardCard, BoardColumnId, BoardData, TaskAutoReviewMode } from "@/types";
@@ -10,6 +11,10 @@ const AUTO_REVIEW_ACTION_DELAY_MS = 500;
 
 function isTaskAutoReviewEnabled(task: BoardCard): boolean {
 	return task.autoReviewEnabled === true;
+}
+
+function hasFailedSessionRun(sessions: Record<string, RuntimeTaskSessionSummary>, taskId: string): boolean {
+	return sessions[taskId]?.reviewReason === "error";
 }
 
 interface TaskGitActionLoadingStateLike {
@@ -23,6 +28,7 @@ interface RequestMoveTaskToTrashOptions {
 
 interface UseReviewAutoActionsOptions {
 	board: BoardData;
+	sessions: Record<string, RuntimeTaskSessionSummary>;
 	taskGitActionLoadingByTaskId: Record<string, TaskGitActionLoadingStateLike>;
 	runAutoReviewGitAction: (taskId: string, action: TaskGitAction) => Promise<boolean>;
 	requestMoveTaskToTrash: (
@@ -35,12 +41,14 @@ interface UseReviewAutoActionsOptions {
 
 export function useReviewAutoActions({
 	board,
+	sessions,
 	taskGitActionLoadingByTaskId,
 	runAutoReviewGitAction,
 	requestMoveTaskToTrash,
 	resetKey,
 }: UseReviewAutoActionsOptions): void {
 	const boardRef = useRef<BoardData>(board);
+	const sessionsRef = useRef<Record<string, RuntimeTaskSessionSummary>>(sessions);
 	const runAutoReviewGitActionRef = useRef(runAutoReviewGitAction);
 	const requestMoveTaskToTrashRef = useRef(requestMoveTaskToTrash);
 	const awaitingCleanActionByTaskIdRef = useRef<Record<string, TaskGitAction>>({});
@@ -52,6 +60,10 @@ export function useReviewAutoActions({
 	useEffect(() => {
 		boardRef.current = board;
 	}, [board]);
+
+	useEffect(() => {
+		sessionsRef.current = sessions;
+	}, [sessions]);
 
 	useEffect(() => {
 		runAutoReviewGitActionRef.current = runAutoReviewGitAction;
@@ -146,7 +158,10 @@ export function useReviewAutoActions({
 			}
 
 			for (const reviewTask of reviewCardsForAutomation) {
-				const autoReviewEnabled = isTaskAutoReviewEnabled(reviewTask);
+				// A task whose last run ended in error must never be auto-committed/auto-done:
+				// the developer needs to see it landed in review because it failed, not because it finished.
+				const autoReviewEnabled =
+					isTaskAutoReviewEnabled(reviewTask) && !hasFailedSessionRun(sessionsRef.current, reviewTask.id);
 				if (!autoReviewEnabled) {
 					delete awaitingCleanActionByTaskIdRef.current[reviewTask.id];
 					clearAutoReviewTimer(reviewTask.id);
@@ -179,7 +194,10 @@ export function useReviewAutoActions({
 							if (!latestSelection || latestSelection.column.id !== "review") {
 								return;
 							}
-							if (!isTaskAutoReviewEnabled(latestSelection.card)) {
+							if (
+								!isTaskAutoReviewEnabled(latestSelection.card) ||
+								hasFailedSessionRun(sessionsRef.current, reviewTask.id)
+							) {
 								return;
 							}
 							const latestMode = resolveTaskAutoReviewMode(latestSelection.card.autoReviewMode);
@@ -212,7 +230,10 @@ export function useReviewAutoActions({
 					if (!latestSelection || latestSelection.column.id !== "review") {
 						return;
 					}
-					if (!isTaskAutoReviewEnabled(latestSelection.card)) {
+					if (
+						!isTaskAutoReviewEnabled(latestSelection.card) ||
+						hasFailedSessionRun(sessionsRef.current, reviewTask.id)
+					) {
 						return;
 					}
 					const latestMode = resolveTaskAutoReviewMode(latestSelection.card.autoReviewMode);
@@ -235,7 +256,7 @@ export function useReviewAutoActions({
 		evaluateAutoReview({
 			source: "board_or_loading_change",
 		});
-	}, [board, evaluateAutoReview, taskGitActionLoadingByTaskId]);
+	}, [board, evaluateAutoReview, sessions, taskGitActionLoadingByTaskId]);
 
 	useEffect(() => {
 		return subscribeToAnyTaskMetadata((taskId) => {
