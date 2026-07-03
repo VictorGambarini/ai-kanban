@@ -67,16 +67,22 @@ function toSdkUserImages(images?: RuntimeTaskImage[]): string[] | undefined {
 // Some provider backends (e.g. the default Cline gateway) haven't rolled out multimodal
 // content support yet and reject image blocks with a raw serde deserialization error. Surface
 // that as an actionable message instead of the raw "unknown variant `image_url`" JSON error.
-function isUnsupportedImageContentError(error: unknown): boolean {
+//
+// This rejection doesn't always arrive as a thrown/rejected error: some hosts swallow the
+// upstream HTTP failure and resolve the turn with the raw provider error text as the "assistant"
+// result content instead. Exported so cline-task-session-service.ts can run the same check
+// against a *successful* result's text, not just a caught exception.
+export function isUnsupportedImageContentError(error: unknown): boolean {
 	const message = error instanceof Error ? error.message : String(error);
 	return message.includes("image_url") && /unknown variant/i.test(message);
 }
 
+export const UNSUPPORTED_IMAGE_ATTACHMENT_MESSAGE =
+	"The selected model or provider doesn't support image attachments. Remove the image(s) or choose a vision-capable model, then try again.";
+
 function toUserFacingSendError(error: unknown, hasImages: boolean): Error {
 	if (hasImages && isUnsupportedImageContentError(error)) {
-		return new Error(
-			"The selected model or provider doesn't support image attachments. Remove the image(s) or choose a vision-capable model, then try again.",
-		);
+		return new Error(UNSUPPORTED_IMAGE_ATTACHMENT_MESSAGE);
 	}
 	return error instanceof Error ? error : new Error(String(error));
 }

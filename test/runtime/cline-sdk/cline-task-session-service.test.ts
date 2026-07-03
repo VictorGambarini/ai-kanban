@@ -1605,6 +1605,81 @@ describe("InMemoryClineTaskSessionService", () => {
 		);
 	});
 
+	it("translates an unsupported-image error the SDK resolves as normal result text on the initial turn", async () => {
+		// Regression: the Cline default gateway doesn't always reject image attachments as a
+		// thrown error — it can resolve the turn successfully with the raw provider rejection
+		// text as the "assistant" result content instead. Reproduced live against the real SDK
+		// with the Cline default provider + DeepSeek Chat via /qa on 2026-07-03.
+		const { service, runtime } = createTrackedService();
+		runtime.startTaskSessionMock.mockResolvedValueOnce({
+			sessionId: "task-1-runtime",
+			result: {
+				text: "Failed to deserialize the JSON body into the target type: messages[14]: unknown variant `image_url`, expected `text` at line 1 column 87440",
+			},
+		});
+
+		await service.startTaskSession({
+			taskId: "task-1",
+			cwd: "/tmp/worktree",
+			prompt: "What is in this image?",
+			images: [{ id: "img-1", data: "abc123", mimeType: "image/png" }],
+		});
+
+		await vi.waitFor(() => {
+			expect(service.getSummary("task-1")?.state).toBe("awaiting_review");
+		});
+
+		expect(service.getSummary("task-1")?.reviewReason).toBe("error");
+		expect(service.getSummary("task-1")?.warningMessage).toContain("doesn't support image attachments");
+		const assistantMessages = service
+			.listMessages("task-1")
+			.filter((message) => message.role === "assistant")
+			.map((message) => message.content);
+		expect(assistantMessages.some((content) => content.includes("unknown variant"))).toBe(false);
+		expect(
+			service
+				.listMessages("task-1")
+				.some((message) => message.content.includes("doesn't support image attachments")),
+		).toBe(true);
+	});
+
+	it("translates an unsupported-image error the SDK resolves as normal result text on follow-up input", async () => {
+		const { service, runtime } = createTrackedService();
+
+		await service.startTaskSession({
+			taskId: "task-1",
+			cwd: "/tmp/worktree",
+			prompt: "Investigate startup",
+		});
+		await vi.waitFor(() => {
+			expect(runtime.startTaskSessionMock).toHaveBeenCalledTimes(1);
+		});
+
+		runtime.sendTaskSessionInputMock.mockResolvedValueOnce({
+			text: "Failed to deserialize the JSON body into the target type: messages[14]: unknown variant `image_url`, expected `text` at line 1 column 87440",
+		});
+
+		await service.sendTaskSessionInput("task-1", "What is in this image?", undefined, [
+			{ id: "img-1", data: "abc123", mimeType: "image/png" },
+		]);
+
+		await vi.waitFor(() => {
+			expect(service.getSummary("task-1")?.reviewReason).toBe("error");
+		});
+
+		expect(service.getSummary("task-1")?.warningMessage).toContain("doesn't support image attachments");
+		const assistantMessages = service
+			.listMessages("task-1")
+			.filter((message) => message.role === "assistant")
+			.map((message) => message.content);
+		expect(assistantMessages.some((content) => content.includes("unknown variant"))).toBe(false);
+		expect(
+			service
+				.listMessages("task-1")
+				.some((message) => message.content.includes("doesn't support image attachments")),
+		).toBe(true);
+	});
+
 	it("suppresses generic startup failure warnings for insufficient-balance errors", async () => {
 		const { service, runtime } = createTrackedService();
 		const insufficientBalanceError = new Error("402 Insufficient balance. Your Cline Credits balance is $0.00");
