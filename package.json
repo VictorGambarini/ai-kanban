@@ -1,6 +1,6 @@
 {
   "name": "@victorgambarini/ai-kanban",
-  "version": "0.1.74",
+  "version": "0.1.75",
   "description": "Community fork of Cline Kanban with remote / self-hosted server support",
   "publishConfig": {
     "access": "public",

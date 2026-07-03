@@ -1,5 +1,9 @@
 # Changelog
 
+## [0.1.75]
+
+- Fixed native Cline tasks failing to start with `Unknown or disabled provider "openai"` when provider settings were saved under a legacy provider id (for example by the Cline VS Code extension or CLI). Legacy ids such as `openai` are now mapped to their current SDK ids automatically, and existing settings are migrated on startup.
+
 ## [0.1.74]
 
 - OpenCode is back as a supported agent, with a working model picker and autonomous-mode support.
