@@ -516,4 +516,61 @@ describe("createTerminalWebSocketBridge", () => {
 		await closeSocket(ioSocketB.socket);
 		await closeSocket(controlSocketB.socket);
 	});
+
+	it("evicts a stalled viewer that never acknowledges output, freeing the shared PTY", async () => {
+		// A dedicated server + bridge lets this test use a short stall timeout
+		// without affecting the other tests in this suite (Node's EventEmitter
+		// stacks "upgrade" listeners on a shared server).
+		const stallServer = createServer((_request, response) => {
+			response.writeHead(404);
+			response.end();
+		});
+		const stallManager = new FakeTerminalManager();
+		const stallBridge = createTerminalWebSocketBridge({
+			server: stallServer,
+			resolveTerminalManager: (workspaceId) => (workspaceId === WORKSPACE_ID ? stallManager : null),
+			isTerminalIoWebSocketPath: (pathname) => pathname === "/api/terminal/io",
+			isTerminalControlWebSocketPath: (pathname) => pathname === "/api/terminal/control",
+			outputAckStallTimeoutMs: 50,
+		});
+		stallServer.listen(0, "127.0.0.1");
+		await once(stallServer, "listening");
+		const stallAddress = stallServer.address() as AddressInfo | null;
+		if (!stallAddress) {
+			throw new Error("Expected websocket server address.");
+		}
+		setKanbanRuntimePort(stallAddress.port);
+		const stallUrl = `ws://127.0.0.1:${stallAddress.port}`;
+
+		try {
+			const ioUrl = `${stallUrl}/api/terminal/io?taskId=${TASK_ID}&workspaceId=${WORKSPACE_ID}&clientId=client-stalled`;
+			const controlUrl = `${stallUrl}/api/terminal/control?taskId=${TASK_ID}&workspaceId=${WORKSPACE_ID}&clientId=client-stalled`;
+
+			const ioSocket = await openQueuedWebSocket(ioUrl);
+			const controlSocket = await openQueuedWebSocket(controlUrl);
+
+			await waitForControlMessage(controlSocket, (message) => message.type === "restore");
+			controlSocket.socket.send(JSON.stringify({ type: "restore_complete" }));
+
+			// Enough output to cross OUTPUT_ACK_HIGH_WATER_MARK_BYTES, which pauses
+			// the shared PTY until this viewer acknowledges it.
+			const output = "x".repeat(120_000);
+			stallManager.emitOutput(TASK_ID, output);
+			await waitForIoMessage(ioSocket);
+			expect(stallManager.pauseOutput).toHaveBeenCalledTimes(1);
+
+			// Never send output_ack and never close the socket: this viewer is
+			// wedged, not just closed. Without the stall timeout this would pause
+			// the shared PTY forever, per cline/kanban#542.
+			await once(ioSocket.socket, "close");
+			await waitForAssertion(() => {
+				expect(stallManager.resumeOutput).toHaveBeenCalledTimes(1);
+			});
+		} finally {
+			await stallBridge.close();
+			await new Promise<void>((resolve, reject) => {
+				stallServer.close((error) => (error ? reject(error) : resolve()));
+			});
+		}
+	});
 });

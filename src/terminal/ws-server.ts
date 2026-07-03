@@ -34,6 +34,15 @@ export interface CreateTerminalWebSocketBridgeRequest {
 	 * @returns true if the request is authenticated, false otherwise.
 	 */
 	validateUpgradeSession?: (cookieHeader: string | undefined) => boolean;
+	/**
+	 * How long a viewer may remain backpressured with zero forward progress
+	 * (no output_ack from the client, no socket "drain") before it is force
+	 * disconnected. Without this, a wedged/stale viewer that stops
+	 * acknowledging output can keep the shared task PTY paused forever, even
+	 * for other/future viewers. Defaults to OUTPUT_ACK_STALL_TIMEOUT_MS;
+	 * tests may override with a short value.
+	 */
+	outputAckStallTimeoutMs?: number;
 }
 
 export interface TerminalWebSocketBridge {
@@ -98,6 +107,12 @@ const OUTPUT_BUFFER_LOW_WATER_MARK_BYTES = Math.floor(OUTPUT_BUFFER_HIGH_WATER_M
 const OUTPUT_ACK_HIGH_WATER_MARK_BYTES = 100_000;
 const OUTPUT_ACK_LOW_WATER_MARK_BYTES = 5_000;
 const OUTPUT_RESUME_CHECK_INTERVAL_MS = 16;
+// A viewer that is backpressured but still making forward progress (acks
+// trickling in, socket occasionally draining) is just slow and should be
+// left alone. A viewer that makes zero progress for this long is treated as
+// wedged/stale and force-disconnected so it cannot hold the shared PTY
+// paused for every other viewer indefinitely.
+const OUTPUT_ACK_STALL_TIMEOUT_MS = 20_000;
 
 function getWebSocketTransportSocket(ws: WebSocket): Socket | null {
 	const transportSocket = (ws as WebSocket & { _socket?: Socket })._socket;
@@ -148,6 +163,7 @@ export function createTerminalWebSocketBridge({
 	isTerminalIoWebSocketPath,
 	isTerminalControlWebSocketPath,
 	validateUpgradeSession,
+	outputAckStallTimeoutMs = OUTPUT_ACK_STALL_TIMEOUT_MS,
 }: CreateTerminalWebSocketBridgeRequest): TerminalWebSocketBridge {
 	const activeSockets = new Set<Socket>();
 	const terminalStreamStates = new Map<string, TerminalStreamState>();
@@ -282,6 +298,11 @@ export function createTerminalWebSocketBridge({
 		// but not yet acknowledged as committed by the terminal renderer. We also look
 		// at the websocket's own bufferedAmount so we catch both xterm lag and socket lag.
 		let unacknowledgedOutputBytes = 0;
+		// Tracks the last time this viewer showed ANY sign of life while paused
+		// (an ack that reduced unacknowledgedOutputBytes, or a socket "drain").
+		// A viewer stuck at the same value for OUTPUT_ACK_STALL_TIMEOUT_MS is
+		// treated as wedged, not just slow.
+		let lastBackpressureProgressAt = 0;
 
 		const shouldPauseOutput = () =>
 			ws.bufferedAmount >= OUTPUT_BUFFER_HIGH_WATER_MARK_BYTES ||
@@ -291,13 +312,32 @@ export function createTerminalWebSocketBridge({
 			ws.bufferedAmount < OUTPUT_BUFFER_LOW_WATER_MARK_BYTES &&
 			unacknowledgedOutputBytes < OUTPUT_ACK_LOW_WATER_MARK_BYTES;
 
+		const noteBackpressureProgress = () => {
+			lastBackpressureProgressAt = Date.now();
+		};
+
+		const onTransportDrain = () => {
+			noteBackpressureProgress();
+			checkResumeAfterBackpressure();
+		};
+
 		const clearResumeCheck = () => {
 			if (resumeCheckTimer !== null) {
 				clearTimeout(resumeCheckTimer);
 				resumeCheckTimer = null;
 			}
 			const transportSocket = getWebSocketTransportSocket(ws);
-			transportSocket?.removeListener("drain", checkResumeAfterBackpressure);
+			transportSocket?.removeListener("drain", onTransportDrain);
+		};
+
+		// A wedged viewer (hung tab, sleeping laptop, half-open connection) may
+		// never close and never drain/ack. Left unchecked it keeps this viewer
+		// in backpressuredViewerIds forever, which keeps the shared PTY paused
+		// for every other viewer too. Force-disconnect it like a normal close.
+		const evictStalledViewer = () => {
+			clearResumeCheck();
+			streamState.viewers.get(clientId)?.controlSocket?.terminate();
+			ws.terminate();
 		};
 
 		const checkResumeAfterBackpressure = () => {
@@ -317,6 +357,10 @@ export function createTerminalWebSocketBridge({
 				}
 				return;
 			}
+			if (Date.now() - lastBackpressureProgressAt >= outputAckStallTimeoutMs) {
+				evictStalledViewer();
+				return;
+			}
 			scheduleResumeCheck();
 		};
 
@@ -326,7 +370,7 @@ export function createTerminalWebSocketBridge({
 			}
 			clearResumeCheck();
 			const transportSocket = getWebSocketTransportSocket(ws);
-			transportSocket?.once("drain", checkResumeAfterBackpressure);
+			transportSocket?.once("drain", onTransportDrain);
 			resumeCheckTimer = setTimeout(() => {
 				resumeCheckTimer = null;
 				checkResumeAfterBackpressure();
@@ -340,6 +384,7 @@ export function createTerminalWebSocketBridge({
 			unacknowledgedOutputBytes += chunk.byteLength;
 			if (shouldPauseOutput()) {
 				outputPaused = true;
+				noteBackpressureProgress();
 				const previouslyPaused = streamState.backpressuredViewerIds.size > 0;
 				streamState.backpressuredViewerIds.add(clientId);
 				if (!previouslyPaused) {
@@ -386,7 +431,11 @@ export function createTerminalWebSocketBridge({
 				}
 			},
 			acknowledgeOutput: (bytes: number) => {
-				unacknowledgedOutputBytes = Math.max(0, unacknowledgedOutputBytes - Math.max(0, Math.floor(bytes)));
+				const appliedBytes = Math.max(0, Math.floor(bytes));
+				if (appliedBytes > 0) {
+					unacknowledgedOutputBytes = Math.max(0, unacknowledgedOutputBytes - appliedBytes);
+					noteBackpressureProgress();
+				}
 				checkResumeAfterBackpressure();
 			},
 			dispose: () => {
