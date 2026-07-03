@@ -29,6 +29,7 @@ import {
 	loginClineOAuth,
 	loginOcaOAuth,
 	loginOpenAICodex,
+	normalizeProviderId,
 	type OcaOAuthProviderOptions,
 	type ProviderSettings,
 	ProviderSettingsManager,
@@ -373,17 +374,56 @@ async function listRefreshedCatalogProviderModels(
 }
 
 export async function listSdkProviderModels(providerId: string): Promise<SdkProviderModel[]> {
-	const config = providerManager.getProviderConfig(providerId);
+	const canonicalProviderId = normalizeSdkProviderId(providerId);
+	const config = providerManager.getProviderConfig(canonicalProviderId);
 	const [localModels, refreshedModels] = await Promise.all([
-		getLocalProviderModels(providerId, config)
+		getLocalProviderModels(canonicalProviderId, config)
 			.then((response) => response.models.map(toSdkProviderModel))
 			.catch(() => []),
-		listRefreshedCatalogProviderModels(providerId, config).catch(() => []),
+		listRefreshedCatalogProviderModels(canonicalProviderId, config).catch(() => []),
 	]);
 	return mergeSdkProviderModels([...localModels, ...refreshedModels]);
 }
 
 const providerManager = new ProviderSettingsManager();
+
+// The SDK's llms registry only knows canonical provider ids, but settings
+// written by other Cline surfaces may still carry legacy aliases (for example
+// "openai" for "openai-native"). A legacy id passed to the registry verbatim
+// fails model resolution with `Unknown or disabled provider "openai"`, so every
+// id crossing this boundary goes through the SDK's alias map first.
+export function normalizeSdkProviderId(providerId: string): string {
+	return normalizeProviderId(providerId.trim().toLowerCase());
+}
+
+// Rewrite persisted provider-settings entries keyed by a legacy alias to their
+// canonical id so settings reads, saves, and llms-registry lookups all agree.
+// When both the alias and the canonical id have entries, the newer one wins.
+export function migrateSdkLegacyProviderIds(): void {
+	const state = providerManager.read();
+	let migrated = false;
+	for (const [storedProviderId, entry] of Object.entries(state.providers)) {
+		const canonicalProviderId = normalizeSdkProviderId(storedProviderId);
+		if (canonicalProviderId === storedProviderId) {
+			continue;
+		}
+		const canonicalEntry = state.providers[canonicalProviderId];
+		if (!canonicalEntry || canonicalEntry.updatedAt < entry.updatedAt) {
+			state.providers[canonicalProviderId] = {
+				...entry,
+				settings: { ...entry.settings, provider: canonicalProviderId },
+			};
+		}
+		delete state.providers[storedProviderId];
+		if (state.lastUsedProvider === storedProviderId) {
+			state.lastUsedProvider = canonicalProviderId;
+		}
+		migrated = true;
+	}
+	if (migrated) {
+		providerManager.write(state);
+	}
+}
 
 function resolveModelsPath(): string {
 	return join(dirname(providerManager.getFilePath()), "models.json");
@@ -560,18 +600,34 @@ export async function deleteSdkCustomProvider(providerId: string): Promise<void>
 	providerManager.write(settingsState);
 }
 
+// Settings written before migrateSdkLegacyProviderIds ran (or by another Cline
+// surface while Kanban is running) may still sit under a legacy alias key, so
+// reads fall back to the raw id and always report the canonical id.
+function toCanonicalProviderSettings(settings: SdkProviderSettings | undefined): SdkProviderSettings | null {
+	if (!settings) {
+		return null;
+	}
+	return { ...settings, provider: normalizeSdkProviderId(settings.provider) };
+}
+
 export function getSdkProviderSettings(providerId: string): SdkProviderSettings | null {
-	return (providerManager.getProviderSettings(providerId) as SdkProviderSettings | undefined) ?? null;
+	const canonicalProviderId = normalizeSdkProviderId(providerId);
+	const settings =
+		(providerManager.getProviderSettings(canonicalProviderId) as SdkProviderSettings | undefined) ??
+		(canonicalProviderId === providerId
+			? undefined
+			: (providerManager.getProviderSettings(providerId) as SdkProviderSettings | undefined));
+	return toCanonicalProviderSettings(settings);
 }
 
 export function getLastUsedSdkProviderSettings(): SdkProviderSettings | null {
-	return (providerManager.getLastUsedProviderSettings() as SdkProviderSettings | undefined) ?? null;
+	return toCanonicalProviderSettings(providerManager.getLastUsedProviderSettings() as SdkProviderSettings | undefined);
 }
 
 export function saveSdkProviderSettings(input: SaveSdkProviderSettingsInput): void {
 	const settings: SdkProviderSettings = {
 		...input.settings,
-		provider: input.settings.provider.trim(),
+		provider: normalizeSdkProviderId(input.settings.provider),
 	};
 	if (settings.model !== undefined) {
 		const model = settings.model.trim();

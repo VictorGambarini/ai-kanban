@@ -110,7 +110,12 @@ vi.mock("@clinebot/core", () => ({
 				baseUrl: settings.baseUrl,
 			};
 		});
+		getFilePath = vi.fn(() => "/tmp/provider-settings.json");
+		read = vi.fn(() => ({ version: 1, providers: {} }));
+		write = vi.fn();
 	},
+	// Mirrors the SDK's legacy provider-id alias map (llms PROVIDER_ID_ALIASES).
+	normalizeProviderId: (providerId: string) => (providerId === "openai" ? "openai-native" : providerId),
 	Llms: {
 		getAllProviders: llmsModelMocks.getAllProviders,
 		getModelsForProvider: llmsModelMocks.getModelsForProvider,
