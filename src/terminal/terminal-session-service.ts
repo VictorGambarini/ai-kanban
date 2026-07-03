@@ -10,6 +10,10 @@ export interface TerminalSessionListener {
 export interface TerminalSessionService {
 	attach(taskId: string, listener: TerminalSessionListener): (() => void) | null;
 	getRestoreSnapshot(taskId: string): Promise<TerminalRestoreSnapshot | null>;
+	// Chunk counter mirroring TerminalStateMirror.getOutputSequence() for the task's
+	// mirror. Lets callers stamp live output with the sequence number a subsequent
+	// getRestoreSnapshot() cutoff can be compared against.
+	getOutputSequence(taskId: string): number;
 	recoverStaleSession(taskId: string): RuntimeTaskSessionSummary | null;
 	writeInput(taskId: string, data: Buffer): RuntimeTaskSessionSummary | null;
 	resize(taskId: string, cols: number, rows: number, pixelWidth?: number, pixelHeight?: number): boolean;

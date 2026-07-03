@@ -49,9 +49,17 @@ interface IoOutputState {
 // One PTY session can have many browser viewers at the same time.
 // Keep shared stream ownership at the task level, then isolate restore,
 // buffering, and socket replacement per clientId so one tab cannot evict another.
+interface PendingOutputChunk {
+	chunk: Buffer;
+	// Sequence number of this chunk in the task's terminal-state mirror, as of the
+	// moment it was buffered. Used to drop chunks that a later restore snapshot
+	// already includes, so a reconnecting viewer never sees the same output twice.
+	sequence: number;
+}
+
 interface TerminalViewerState {
 	clientId: string;
-	pendingOutputChunks: Buffer[];
+	pendingOutputChunks: PendingOutputChunk[];
 	restoreComplete: boolean;
 	ioState: IoOutputState | null;
 	ioSocket: WebSocket | null;
@@ -234,8 +242,8 @@ export function createTerminalWebSocketBridge({
 				if (!created.restoreComplete || !created.ioState || created.pendingOutputChunks.length === 0) {
 					return;
 				}
-				for (const chunk of created.pendingOutputChunks) {
-					created.ioState.enqueueOutput(chunk);
+				for (const pending of created.pendingOutputChunks) {
+					created.ioState.enqueueOutput(pending.chunk);
 				}
 				created.pendingOutputChunks = [];
 			},
@@ -412,12 +420,17 @@ export function createTerminalWebSocketBridge({
 		// last-viewer-wins across tabs.
 		streamState.detachOutputListener = terminalManager.attach(taskId, {
 			onOutput: (chunk) => {
+				// Read after the chunk has already been applied to the task's terminal-state
+				// mirror (session-manager.ts updates the mirror before notifying listeners), so
+				// this is exactly the sequence number a subsequent restore snapshot's cutoff
+				// will be compared against.
+				const sequence = terminalManager.getOutputSequence(taskId);
 				for (const viewerState of streamState.viewers.values()) {
 					if (viewerState.restoreComplete && viewerState.ioState) {
 						viewerState.ioState.enqueueOutput(chunk);
 						continue;
 					}
-					viewerState.pendingOutputChunks.push(chunk);
+					viewerState.pendingOutputChunks.push({ chunk, sequence });
 				}
 			},
 		});
@@ -553,6 +566,14 @@ export function createTerminalWebSocketBridge({
 		void terminalManager
 			.getRestoreSnapshot(taskId)
 			.then((snapshot) => {
+				// Any chunk buffered at or before this cutoff is already baked into the
+				// snapshot text about to be sent — drop it so flushPendingOutput() (fired
+				// once the client acks restore_complete) never replays output the client
+				// is about to receive as part of the restore itself.
+				const cutoffSequence = snapshot?.sequence ?? 0;
+				viewerState.pendingOutputChunks = viewerState.pendingOutputChunks.filter(
+					(pending) => pending.sequence > cutoffSequence,
+				);
 				sendControlMessage(ws, {
 					type: "restore",
 					snapshot: snapshot?.snapshot ?? "",
