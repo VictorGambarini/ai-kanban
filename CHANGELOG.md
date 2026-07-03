@@ -1,5 +1,22 @@
 # Changelog
 
+## [0.1.74]
+
+- OpenCode is back as a supported agent, with a working model picker and autonomous-mode support.
+- Kanban now remembers your last-picked agent and model as the default for new tasks.
+- Improved connection resilience for CLI agents (Claude Code, Codex, etc.): dropped connections are now detected and auto-reconnected, with a status indicator and one-click Restart for stuck sessions.
+- Fixed several terminal glitches that could garble or duplicate output when reopening a task, especially on mobile.
+- Cline chat tasks can now be resumed after a Kanban restart instead of getting stuck.
+- Failed task runs are no longer silently marked Done — they now stay in Review with a clear "Failed" indicator on the card.
+- Clearer error messages when a provider doesn't support image attachments, instead of a raw JSON error.
+- Added Claude Code status line settings to Kanban's Settings dialog, so you can manage your ~/.claude/statusline.py script from one place.
+- Updated Claude Code and Codex model lists to match their latest official pickers.
+- Done (trash) cards can now be opened in a read-only detail/chat view instead of only offering Restore.
+- Faster skill listing and more stable source grouping when installing/reviewing skills.
+- Fixed the per-task environment variable editor closing unexpectedly, and made it usable directly from the task creation dialog.
+- Directory picker no longer freezes the whole server while its dialog is open.
+- Fixed skill-related files incorrectly showing up as changes in task diffs.
+
 ## [0.1.73]
 
 - Set custom environment variables and secrets for your agents: a new "Environment" section in Settings (global and per-project) plus a per-task Env editor let you inject values like `GH_TOKEN` for `gh`, a Jira API key, or `ANTHROPIC_*` overrides into agent sessions. Values layer task > project > global, are stored only in the hub's config file (chmod 600), and stay hub-sourced even when you're viewing a remote board. Applies to CLI agents (Claude Code, Codex, Gemini, …); the in-process Cline agent inherits the runtime environment instead
