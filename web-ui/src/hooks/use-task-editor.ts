@@ -278,9 +278,11 @@ export function useTaskEditor({
 			setEditTaskAgentId(task.agentId);
 			setEditTaskCliModel(task.cliModel);
 			setEditTaskClineSettings(task.clineSettings);
-			setEditTaskSkillNames(task.skillNames ?? []);
+			// Backlog cards created without an explicit skill selection fall back to the
+			// workspace's last-used skills, same default new tasks get (see skill-preferences).
+			setEditTaskSkillNames(task.skillNames ?? readLastUsedSkillNames(currentProjectId));
 		},
-		[resolvedDefaultTaskBranchRef, setSelectedTaskId],
+		[currentProjectId, resolvedDefaultTaskBranchRef, setSelectedTaskId],
 	);
 
 	const handleCancelEditTask = useCallback(() => {

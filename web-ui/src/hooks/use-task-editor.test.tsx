@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { useTaskEditor } from "@/hooks/use-task-editor";
 import type { RuntimeAgentId, RuntimeTaskClineSettings } from "@/runtime/types";
+import { recordSkillSelection } from "@/storage/skill-preferences";
 import type { BoardCard, BoardData, TaskAutoReviewMode, TaskImage } from "@/types";
 
 function createTask(taskId: string, prompt: string, createdAt: number, overrides: Partial<BoardCard> = {}): BoardCard {
@@ -43,6 +44,7 @@ interface HookSnapshot {
 	newTaskClineSettings: RuntimeTaskClineSettings | undefined;
 	editingTaskId: string | null;
 	editTaskPrompt: string;
+	editTaskSkillNames: string[];
 	editTaskStartInPlanMode: boolean;
 	isEditTaskStartInPlanModeDisabled: boolean;
 	handleOpenCreateTask: () => void;
@@ -101,6 +103,7 @@ function HookHarness({
 			newTaskClineSettings: editor.newTaskClineSettings,
 			editingTaskId: editor.editingTaskId,
 			editTaskPrompt: editor.editTaskPrompt,
+			editTaskSkillNames: editor.editTaskSkillNames,
 			editTaskStartInPlanMode: editor.editTaskStartInPlanMode,
 			isEditTaskStartInPlanModeDisabled: editor.isEditTaskStartInPlanModeDisabled,
 			handleOpenCreateTask: editor.handleOpenCreateTask,
@@ -125,6 +128,7 @@ function HookHarness({
 		editor.editTaskPrompt,
 		editor.editTaskStartInPlanMode,
 		editor.editingTaskId,
+		editor.editTaskSkillNames,
 		editor.handleOpenEditTask,
 		editor.handleSaveEditedTask,
 		editor.handleSaveAndStartEditedTask,
@@ -214,6 +218,67 @@ describe("useTaskEditor", () => {
 		expect(savedTaskId).toBe("task-1");
 		expect(requireSnapshot(latestSnapshot).editingTaskId).toBeNull();
 		expect(requireSnapshot(latestSnapshot).board.columns[0]?.cards[0]?.prompt).toBe("Updated prompt");
+	});
+
+	it("defaults an existing backlog card's skills to the workspace's last-used selection", async () => {
+		recordSkillSelection("project-1", ["qa"]);
+
+		let latestSnapshot: HookSnapshot | null = null;
+		const initialBoard = createBoard([createTask("task-1", "Initial prompt", 1)]);
+
+		await act(async () => {
+			root.render(
+				<HookHarness
+					initialBoard={initialBoard}
+					onSnapshot={(snapshot) => {
+						latestSnapshot = snapshot;
+					}}
+				/>,
+			);
+		});
+
+		const initialSnapshot = requireSnapshot(latestSnapshot);
+		const task = initialSnapshot.board.columns[0]?.cards[0];
+		if (!task) {
+			throw new Error("Expected a backlog task.");
+		}
+		expect(task.skillNames).toBeUndefined();
+
+		await act(async () => {
+			initialSnapshot.handleOpenEditTask(task);
+		});
+
+		expect(requireSnapshot(latestSnapshot).editTaskSkillNames).toEqual(["qa"]);
+	});
+
+	it("keeps a backlog card's own explicit skill selection instead of the last-used default", async () => {
+		recordSkillSelection("project-1", ["qa"]);
+
+		let latestSnapshot: HookSnapshot | null = null;
+		const initialBoard = createBoard([createTask("task-1", "Initial prompt", 1, { skillNames: ["gstack"] })]);
+
+		await act(async () => {
+			root.render(
+				<HookHarness
+					initialBoard={initialBoard}
+					onSnapshot={(snapshot) => {
+						latestSnapshot = snapshot;
+					}}
+				/>,
+			);
+		});
+
+		const initialSnapshot = requireSnapshot(latestSnapshot);
+		const task = initialSnapshot.board.columns[0]?.cards[0];
+		if (!task) {
+			throw new Error("Expected a backlog task.");
+		}
+
+		await act(async () => {
+			initialSnapshot.handleOpenEditTask(task);
+		});
+
+		expect(requireSnapshot(latestSnapshot).editTaskSkillNames).toEqual(["gstack"]);
 	});
 
 	it("does not disable start in plan mode when auto review is enabled while editing", async () => {
