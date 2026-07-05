@@ -255,9 +255,7 @@ describe("useTaskEditor", () => {
 		recordSkillSelection("project-1", ["qa"]);
 
 		let latestSnapshot: HookSnapshot | null = null;
-		const initialBoard = createBoard([
-			createTask("task-1", "Initial prompt", 1, { skillNames: ["gstack"] }),
-		]);
+		const initialBoard = createBoard([createTask("task-1", "Initial prompt", 1, { skillNames: ["gstack"] })]);
 
 		await act(async () => {
 			root.render(
