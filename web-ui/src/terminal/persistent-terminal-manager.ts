@@ -21,7 +21,7 @@ import {
 	hasLikelyShellPrompt,
 } from "@/terminal/terminal-prompt-heuristics";
 import { getMaxLiveTerminalSessions } from "@/terminal/terminal-session-limit";
-import { isMacPlatform } from "@/utils/platform";
+import { isAndroidPlatform, isMacPlatform } from "@/utils/platform";
 
 const SHIFT_ENTER_SEQUENCE = "\n";
 const RESIZE_DEBOUNCE_MS = 50;
@@ -368,7 +368,10 @@ class PersistentTerminal {
 			// any in-flight composition before it can be replayed. Taps only land on
 			// this element for scrolling/refocusing — real typing happens on the
 			// on-screen keyboard itself — so this never interrupts an active edit.
-			if (!didMove) {
+			// Scoped to Android: blur/refocus also sends a focus-out/focus-in escape
+			// sequence to apps that enable focus reporting (mode 1004, e.g. vim/tmux),
+			// so we only pay that cost on the platform that actually has the bug.
+			if (!didMove && isAndroidPlatform()) {
 				const textarea = this.terminal.textarea;
 				if (textarea && document.activeElement === textarea) {
 					textarea.blur();
