@@ -21,7 +21,7 @@ import {
 	hasLikelyShellPrompt,
 } from "@/terminal/terminal-prompt-heuristics";
 import { getMaxLiveTerminalSessions } from "@/terminal/terminal-session-limit";
-import { isMacPlatform } from "@/utils/platform";
+import { isAndroidPlatform, isMacPlatform } from "@/utils/platform";
 
 const SHIFT_ENTER_SEQUENCE = "\n";
 const RESIZE_DEBOUNCE_MS = 50;
@@ -305,11 +305,13 @@ class PersistentTerminal {
 		}
 		let lastTouchY: number | null = null;
 		let scrollRemainderPx = 0;
+		let didMove = false;
 
 		const onTouchStart = (event: TouchEvent) => {
 			const touch = event.touches.length === 1 ? event.touches[0] : null;
 			lastTouchY = touch ? touch.clientY : null;
 			scrollRemainderPx = 0;
+			didMove = false;
 		};
 
 		const onTouchMove = (event: TouchEvent) => {
@@ -325,6 +327,7 @@ class PersistentTerminal {
 			if (deltaY === 0) {
 				return;
 			}
+			didMove = true;
 
 			if (this.terminal.buffer.active.type === "alternate") {
 				const screen = element.querySelector(".xterm-screen") ?? element;
@@ -355,7 +358,28 @@ class PersistentTerminal {
 
 		const onTouchEnd = () => {
 			lastTouchY = null;
+			// Android's on-screen keyboards (Gboard, Samsung Keyboard) track their own
+			// idea of a "composing span" over the helper textarea. Since xterm clears
+			// that textarea's value after forwarding each keystroke to the PTY, a tap
+			// that merely repositions focus within already-rendered output (not a drag)
+			// can leave the keyboard holding a stale composing span; it then replays
+			// that stale text as one bulk insert on the next keystroke, which reads as
+			// "tapping a word pastes the whole line". Forcing a blur/refocus here ends
+			// any in-flight composition before it can be replayed. Taps only land on
+			// this element for scrolling/refocusing — real typing happens on the
+			// on-screen keyboard itself — so this never interrupts an active edit.
+			// Scoped to Android: blur/refocus also sends a focus-out/focus-in escape
+			// sequence to apps that enable focus reporting (mode 1004, e.g. vim/tmux),
+			// so we only pay that cost on the platform that actually has the bug.
+			if (!didMove && isAndroidPlatform()) {
+				const textarea = this.terminal.textarea;
+				if (textarea && document.activeElement === textarea) {
+					textarea.blur();
+					textarea.focus({ preventScroll: true });
+				}
+			}
 			scrollRemainderPx = 0;
+			didMove = false;
 		};
 
 		element.addEventListener("touchstart", onTouchStart, { passive: true });
