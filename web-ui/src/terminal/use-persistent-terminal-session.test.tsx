@@ -30,6 +30,7 @@ function createPersistentTerminalMock() {
 		waitForLikelyPrompt: vi.fn(async () => true),
 		clear: vi.fn(),
 		stop: vi.fn(async () => {}),
+		setReadOnly: vi.fn(),
 	};
 }
 
@@ -38,6 +39,7 @@ function HookHarness({
 	workspaceId,
 	sessionStartedAt,
 	enabled = true,
+	readOnly,
 	onSummary,
 	onConnectionReady,
 }: {
@@ -45,6 +47,7 @@ function HookHarness({
 	workspaceId: string | null;
 	sessionStartedAt: number | null;
 	enabled?: boolean;
+	readOnly?: boolean;
 	onSummary?: (summary: RuntimeTaskSessionSummary) => void;
 	onConnectionReady?: (taskId: string) => void;
 }) {
@@ -52,6 +55,7 @@ function HookHarness({
 		taskId,
 		workspaceId,
 		enabled,
+		readOnly,
 		onSummary,
 		onConnectionReady,
 		sessionStartedAt,
@@ -207,5 +211,40 @@ describe("usePersistentTerminalSession", () => {
 				themeColors: getTerminalThemeColors("graphite"),
 			}),
 		);
+	});
+
+	it("mounts and connects a read-only session without disposing it", async () => {
+		const terminal = createPersistentTerminalMock();
+		ensurePersistentTerminalMock.mockReturnValue(terminal);
+
+		await act(async () => {
+			root.render(<HookHarness taskId="task-a" workspaceId="project-1" sessionStartedAt={100} enabled readOnly />);
+		});
+
+		expect(ensurePersistentTerminalMock).toHaveBeenCalledTimes(1);
+		expect(terminal.mount).toHaveBeenCalledTimes(1);
+		expect(terminal.unmount).not.toHaveBeenCalled();
+		expect(disposePersistentTerminalMock).not.toHaveBeenCalled();
+		expect(terminal.setReadOnly).toHaveBeenCalledWith(true);
+	});
+
+	it("flips read-only on the same live instance without remounting", async () => {
+		const terminal = createPersistentTerminalMock();
+		ensurePersistentTerminalMock.mockReturnValue(terminal);
+
+		await act(async () => {
+			root.render(<HookHarness taskId="task-a" workspaceId="project-1" sessionStartedAt={100} enabled readOnly />);
+		});
+		expect(terminal.setReadOnly).toHaveBeenLastCalledWith(true);
+
+		await act(async () => {
+			root.render(
+				<HookHarness taskId="task-a" workspaceId="project-1" sessionStartedAt={100} enabled readOnly={false} />,
+			);
+		});
+
+		expect(terminal.setReadOnly).toHaveBeenLastCalledWith(false);
+		expect(ensurePersistentTerminalMock).toHaveBeenCalledTimes(1);
+		expect(terminal.unmount).not.toHaveBeenCalled();
 	});
 });
