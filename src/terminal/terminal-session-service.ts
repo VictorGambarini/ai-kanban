@@ -4,7 +4,10 @@ import type { TerminalRestoreSnapshot } from "./terminal-state-mirror";
 export interface TerminalSessionListener {
 	onOutput?: (chunk: Buffer) => void;
 	onState?: (summary: RuntimeTaskSessionSummary) => void;
-	onExit?: (code: number | null) => void;
+	// `willAutoRestart` is true when the manager is about to relaunch this session
+	// (crash auto-restart), so viewers can skip end-of-session teardown handling
+	// like re-pushing the final-screen restore.
+	onExit?: (code: number | null, willAutoRestart: boolean) => void;
 }
 
 export interface TerminalSessionService {

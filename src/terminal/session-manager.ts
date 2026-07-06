@@ -32,11 +32,19 @@ import {
 	type TerminalProtocolFilterState,
 } from "./terminal-protocol-filter";
 import type { TerminalSessionListener, TerminalSessionService } from "./terminal-session-service";
+import type { TerminalSnapshotStore } from "./terminal-snapshot-store";
 import { TerminalStateMirror } from "./terminal-state-mirror";
 
 const MAX_WORKSPACE_TRUST_BUFFER_CHARS = 16_384;
 const AUTO_RESTART_WINDOW_MS = 5_000;
 const MAX_AUTO_RESTARTS_PER_WINDOW = 3;
+// Crash-hardening flush: guarantees a persisted snapshot is at most this stale,
+// so a SIGKILL/OOM loses at most this much scrollback. Not an idle-debounce —
+// the timer is armed once and left alone across a burst of output.
+const SNAPSHOT_FLUSH_INTERVAL_MS = 30_000;
+// Shutdown must not hang waiting on a stuck disk; a persist failure/timeout here
+// is acceptable (best-effort), an unresponsive shutdown is not.
+const SHUTDOWN_SNAPSHOT_FLUSH_TIMEOUT_MS = 3_000;
 // TUI apps (Codex, OpenCode) can query OSC 10/11 before the browser terminal is attached
 // and ready to answer. We intercept those startup probes during early PTY output, synthesize
 // foreground/background color replies, then disable the filter once a live terminal listener
@@ -77,6 +85,9 @@ interface SessionEntry {
 	forceRestartOnExit: boolean;
 	autoRestartTimestamps: number[];
 	pendingAutoRestart: Promise<void> | null;
+	// Debounced crash-hardening flush timer (task sessions only). See
+	// SNAPSHOT_FLUSH_INTERVAL_MS.
+	snapshotFlushTimer: NodeJS.Timeout | null;
 }
 
 export interface StartTaskSessionRequest {
@@ -210,6 +221,12 @@ function hasCodexStartupUiRendered(text: string): boolean {
 export class TerminalSessionManager implements TerminalSessionService {
 	private readonly entries = new Map<string, SessionEntry>();
 	private readonly summaryListeners = new Set<(summary: RuntimeTaskSessionSummary) => void>();
+	private readonly snapshotStore: TerminalSnapshotStore | null;
+	private readonly lastPersistedSnapshotSequenceByTaskId = new Map<string, number>();
+
+	constructor(options: { snapshotStore?: TerminalSnapshotStore } = {}) {
+		this.snapshotStore = options.snapshotStore ?? null;
+	}
 
 	private trySendDeferredCodexStartupInput(taskId: string): boolean {
 		const entry = this.entries.get(taskId);
@@ -260,6 +277,7 @@ export class TerminalSessionManager implements TerminalSessionService {
 				forceRestartOnExit: false,
 				autoRestartTimestamps: [],
 				pendingAutoRestart: null,
+				snapshotFlushTimer: null,
 			});
 		}
 	}
@@ -292,10 +310,27 @@ export class TerminalSessionManager implements TerminalSessionService {
 
 	async getRestoreSnapshot(taskId: string) {
 		const entry = this.entries.get(taskId);
-		if (!entry?.terminalStateMirror) {
+		// A live mirror always wins: a resumed session's fresh scrollback is more
+		// current than anything on disk, even if the entry also has a stale file.
+		if (entry?.terminalStateMirror) {
+			return await entry.terminalStateMirror.getSnapshot();
+		}
+		if (!this.snapshotStore) {
 			return null;
 		}
-		return await entry.terminalStateMirror.getSnapshot();
+		// The manager may have no entry at all for this task (e.g. after a runtime
+		// restart, before hydration/first attach), so this fallback must not depend
+		// on an entry existing.
+		const persisted = await this.snapshotStore.load(taskId);
+		if (!persisted) {
+			return null;
+		}
+		return {
+			snapshot: persisted.snapshot,
+			cols: persisted.cols,
+			rows: persisted.rows,
+			sequence: 0,
+		};
 	}
 
 	getOutputSequence(taskId: string): number {
@@ -318,8 +353,21 @@ export class TerminalSessionManager implements TerminalSessionService {
 			entry.active.session.stop();
 			entry.active = null;
 		}
-		entry.terminalStateMirror?.dispose();
+		if (entry.snapshotFlushTimer) {
+			clearTimeout(entry.snapshotFlushTimer);
+			entry.snapshotFlushTimer = null;
+		}
+		// Detach the old mirror before disposing it so a fast Done->review round
+		// trip (trash's stop-and-restart race, see AGENTS.md) still gets a final
+		// persist of the previous session's output.
+		const previousMirror = entry.terminalStateMirror;
+		const previousStartedAt = entry.summary.startedAt;
 		entry.terminalStateMirror = null;
+		if (previousMirror) {
+			void this.persistMirrorSnapshot(request.taskId, previousMirror, previousStartedAt).finally(() => {
+				previousMirror.dispose();
+			});
+		}
 
 		const cols = Number.isFinite(request.cols) && (request.cols ?? 0) > 0 ? Math.floor(request.cols ?? 0) : 120;
 		const rows = Number.isFinite(request.rows) && (request.rows ?? 0) > 0 ? Math.floor(request.rows ?? 0) : 40;
@@ -379,6 +427,7 @@ export class TerminalSessionManager implements TerminalSessionService {
 						return;
 					}
 					entry.terminalStateMirror?.applyOutput(filteredChunk);
+					this.scheduleSnapshotFlush(entry, request.taskId);
 
 					const needsDecodedOutput =
 						entry.active.workspaceTrustBuffer !== null ||
@@ -464,6 +513,10 @@ export class TerminalSessionManager implements TerminalSessionService {
 						return;
 					}
 					stopWorkspaceTrustTimers(currentActive);
+					if (currentEntry.snapshotFlushTimer) {
+						clearTimeout(currentEntry.snapshotFlushTimer);
+						currentEntry.snapshotFlushTimer = null;
+					}
 
 					this.applySessionEvent(currentEntry, {
 						type: "process.exit",
@@ -477,12 +530,18 @@ export class TerminalSessionManager implements TerminalSessionService {
 
 					for (const taskListener of currentEntry.listeners.values()) {
 						taskListener.onState?.(cloneSummary(summary));
-						taskListener.onExit?.(event.exitCode);
+						taskListener.onExit?.(event.exitCode, shouldAutoRestart);
 					}
 					currentEntry.active = null;
 					this.emitSummary(summary);
 					if (shouldAutoRestart) {
 						this.scheduleAutoRestart(currentEntry);
+					}
+
+					// The mirror is not disposed on exit (only on the next start/restart),
+					// so it still holds the final screen here.
+					if (currentEntry.terminalStateMirror) {
+						void this.persistMirrorSnapshot(request.taskId, currentEntry.terminalStateMirror, summary.startedAt);
 					}
 
 					const cleanupFn = currentActive.onSessionCleanup;
@@ -652,7 +711,7 @@ export class TerminalSessionManager implements TerminalSessionService {
 
 					for (const taskListener of currentEntry.listeners.values()) {
 						taskListener.onState?.(cloneSummary(summary));
-						taskListener.onExit?.(event.exitCode);
+						taskListener.onExit?.(event.exitCode, false);
 					}
 					currentEntry.active = null;
 					this.emitSummary(summary);
@@ -990,6 +1049,10 @@ export class TerminalSessionManager implements TerminalSessionService {
 				continue;
 			}
 			stopWorkspaceTrustTimers(entry.active);
+			if (entry.snapshotFlushTimer) {
+				clearTimeout(entry.snapshotFlushTimer);
+				entry.snapshotFlushTimer = null;
+			}
 			entry.active.session.stop({ interrupted: true });
 		}
 		return activeEntries.map((entry) => cloneSummary(entry.summary));
@@ -1011,6 +1074,84 @@ export class TerminalSessionManager implements TerminalSessionService {
 		return updateSummary(entry, transition.patch);
 	}
 
+	// Best-effort disk persistence of a task's mirror. Never throws: a snapshot is
+	// advisory display data for the Done view, and a persist failure must never
+	// break session flow (spawn, exit, restart, or shutdown).
+	private async persistMirrorSnapshot(
+		taskId: string,
+		mirror: TerminalStateMirror,
+		sessionStartedAt: number | null,
+	): Promise<void> {
+		const snapshotStore = this.snapshotStore;
+		if (!snapshotStore) {
+			return;
+		}
+		const sequence = mirror.getOutputSequence();
+		if (sequence === this.lastPersistedSnapshotSequenceByTaskId.get(taskId)) {
+			return;
+		}
+		try {
+			const snapshot = await mirror.getSnapshot();
+			await snapshotStore.save(taskId, {
+				version: 1,
+				snapshot: snapshot.snapshot,
+				cols: snapshot.cols,
+				rows: snapshot.rows,
+				savedAt: now(),
+				sessionStartedAt,
+			});
+			this.lastPersistedSnapshotSequenceByTaskId.set(taskId, sequence);
+		} catch {
+			// Swallow: a stale or missing snapshot degrades to the frontend's
+			// empty-history placeholder, never to an error.
+		}
+	}
+
+	// Arms a single, unref'd 30s timer per entry (task sessions only) so a
+	// crash (SIGKILL/OOM) loses at most this much scrollback. Deliberately not
+	// reset on every chunk: that would starve flushes during continuous output.
+	private scheduleSnapshotFlush(entry: SessionEntry, taskId: string): void {
+		if (!this.snapshotStore || entry.snapshotFlushTimer) {
+			return;
+		}
+		const timer = setTimeout(() => {
+			entry.snapshotFlushTimer = null;
+			if (entry.terminalStateMirror) {
+				void this.persistMirrorSnapshot(taskId, entry.terminalStateMirror, entry.summary.startedAt);
+			}
+		}, SNAPSHOT_FLUSH_INTERVAL_MS);
+		timer.unref();
+		entry.snapshotFlushTimer = timer;
+	}
+
+	// Flush every live task-session mirror to disk. Used by shutdown, where
+	// mirrors are about to be torn down and this is the last chance to persist
+	// them. Shell-terminal entries are skipped: they have no persisted history.
+	async persistAllTaskSnapshots(): Promise<void> {
+		if (!this.snapshotStore) {
+			return;
+		}
+		const targets: Array<{ taskId: string; mirror: TerminalStateMirror; startedAt: number | null }> = [];
+		for (const [taskId, entry] of this.entries) {
+			if (entry.restartRequest?.kind !== "task" || !entry.terminalStateMirror) {
+				continue;
+			}
+			targets.push({ taskId, mirror: entry.terminalStateMirror, startedAt: entry.summary.startedAt });
+		}
+		if (targets.length === 0) {
+			return;
+		}
+		const flush = Promise.all(
+			targets.map(({ taskId, mirror, startedAt }) => this.persistMirrorSnapshot(taskId, mirror, startedAt)),
+		);
+		await Promise.race([
+			flush,
+			new Promise<void>((resolve) => {
+				setTimeout(resolve, SHUTDOWN_SNAPSHOT_FLUSH_TIMEOUT_MS).unref();
+			}),
+		]);
+	}
+
 	private ensureEntry(taskId: string): SessionEntry {
 		const existing = this.entries.get(taskId);
 		if (existing) {
@@ -1027,6 +1168,7 @@ export class TerminalSessionManager implements TerminalSessionService {
 			forceRestartOnExit: false,
 			autoRestartTimestamps: [],
 			pendingAutoRestart: null,
+			snapshotFlushTimer: null,
 		};
 		this.entries.set(taskId, created);
 		return created;

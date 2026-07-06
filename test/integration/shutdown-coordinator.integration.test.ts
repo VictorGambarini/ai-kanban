@@ -137,6 +137,7 @@ describe.sequential("shutdown coordinator integration", () => {
 
 				let didCloseRuntimeServer = false;
 				const managedTerminalManager = {
+					persistAllTaskSnapshots: async () => {},
 					markInterruptedAndStopAll: () => [createSession("managed-running", "running")],
 					listSummaries: () => [createSession("managed-running", "running")],
 					getSummary: (taskId: string) => {
@@ -186,6 +187,56 @@ describe.sequential("shutdown coordinator integration", () => {
 				// A review task that already finished its turn keeps awaiting_review across restart.
 				expect(indexedAfter.sessions["indexed-awaiting-review"]?.state).toBe("awaiting_review");
 				expect(indexedAfter.sessions["indexed-missing-session"]).toBeUndefined();
+			} finally {
+				cleanup();
+			}
+		});
+	}, 30_000);
+
+	it("flushes terminal snapshots for each managed workspace before stopping sessions", async () => {
+		await withTemporaryHome(async () => {
+			const { path: sandboxRoot, cleanup } = createTempDir("kanban-shutdown-snapshot-flush-");
+			try {
+				const managedProjectPath = join(sandboxRoot, "managed-project");
+				mkdirSync(managedProjectPath, { recursive: true });
+				initGitRepository(managedProjectPath);
+
+				const managedInitial = await loadWorkspaceState(managedProjectPath);
+				await saveWorkspaceState(managedProjectPath, {
+					board: createBoard({ inProgress: ["managed-running"] }),
+					sessions: { "managed-running": createSession("managed-running", "running") },
+					expectedRevision: managedInitial.revision,
+				});
+
+				const callOrder: string[] = [];
+				const managedTerminalManager = {
+					persistAllTaskSnapshots: async () => {
+						callOrder.push("persistAllTaskSnapshots");
+					},
+					markInterruptedAndStopAll: () => {
+						callOrder.push("markInterruptedAndStopAll");
+						return [createSession("managed-running", "running")];
+					},
+					listSummaries: () => [createSession("managed-running", "running")],
+					getSummary: (taskId: string) =>
+						taskId === "managed-running" ? createSession("managed-running", "running") : null,
+				} as unknown as TerminalSessionManager;
+
+				await shutdownRuntimeServer({
+					workspaceRegistry: {
+						listManagedWorkspaces: () => [
+							{
+								workspaceId: "managed-project",
+								workspacePath: managedProjectPath,
+								terminalManager: managedTerminalManager,
+							},
+						],
+					},
+					warn: () => {},
+					closeRuntimeServer: async () => {},
+				});
+
+				expect(callOrder).toEqual(["persistAllTaskSnapshots", "markInterruptedAndStopAll"]);
 			} finally {
 				cleanup();
 			}

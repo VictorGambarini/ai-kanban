@@ -16,6 +16,7 @@ import {
 	removeWorkspaceStateFiles,
 } from "../state/workspace-state";
 import { TerminalSessionManager } from "../terminal/session-manager";
+import { createTerminalSnapshotStore } from "../terminal/terminal-snapshot-store";
 
 export interface WorkspaceRegistryScope {
 	workspaceId: string;
@@ -234,7 +235,7 @@ export async function createWorkspaceRegistry(deps: CreateWorkspaceRegistryDepen
 			return loaded;
 		}
 		const loading = (async () => {
-			const manager = new TerminalSessionManager();
+			const manager = new TerminalSessionManager({ snapshotStore: createTerminalSnapshotStore(workspaceId) });
 			try {
 				const existingWorkspace = await loadWorkspaceState(repoPath);
 				manager.hydrateFromRecord(existingWorkspace.sessions);

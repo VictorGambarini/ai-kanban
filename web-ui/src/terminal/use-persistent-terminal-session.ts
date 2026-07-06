@@ -14,6 +14,7 @@ interface UsePersistentTerminalSessionInput {
 	taskId: string;
 	workspaceId: string | null;
 	enabled?: boolean;
+	readOnly?: boolean;
 	onSummary?: (summary: RuntimeTaskSessionSummary) => void;
 	onConnectionReady?: (taskId: string) => void;
 	autoFocus?: boolean;
@@ -28,6 +29,7 @@ export interface UsePersistentTerminalSessionResult {
 	lastError: string | null;
 	isStopping: boolean;
 	connectionStatus: TerminalConnectionStatus;
+	restoreHadContent: boolean | null;
 	clearTerminal: () => void;
 	stopTerminal: () => Promise<void>;
 	reconnectTerminal: () => void;
@@ -37,6 +39,7 @@ export function usePersistentTerminalSession({
 	taskId,
 	workspaceId,
 	enabled = true,
+	readOnly = false,
 	onSummary,
 	onConnectionReady,
 	autoFocus = false,
@@ -64,6 +67,7 @@ export function usePersistentTerminalSession({
 	const [lastError, setLastError] = useState<string | null>(null);
 	const [isStopping, setIsStopping] = useState(false);
 	const [connectionStatus, setConnectionStatus] = useState<TerminalConnectionStatus>("reconnecting");
+	const [restoreHadContent, setRestoreHadContent] = useState<boolean | null>(null);
 	callbackRef.current = {
 		onSummary,
 		onConnectionReady,
@@ -80,6 +84,7 @@ export function usePersistentTerminalSession({
 			previousSessionRef.current = null;
 			setLastError(null);
 			setIsStopping(false);
+			setRestoreHadContent(null);
 			return;
 		}
 
@@ -92,6 +97,7 @@ export function usePersistentTerminalSession({
 			terminalRef.current = null;
 			previousSessionRef.current = null;
 			setLastError("No project selected.");
+			setRestoreHadContent(null);
 			return;
 		}
 		const container = containerRef.current;
@@ -130,6 +136,7 @@ export function usePersistentTerminalSession({
 			onSummary: (summary) => {
 				callbackRef.current.onSummary?.(summary);
 			},
+			onRestoreResult: setRestoreHadContent,
 		});
 		terminal.mount(
 			container,
@@ -164,6 +171,12 @@ export function usePersistentTerminalSession({
 		workspaceId,
 	]);
 
+	// Flips the live instance's read-only flag in place, independent of the mount
+	// effect above, so a trash->review transition doesn't force an unmount/remount.
+	useEffect(() => {
+		terminalRef.current?.setReadOnly(readOnly);
+	}, [readOnly]);
+
 	useEffect(() => {
 		return registerTerminalController(taskId, {
 			input: (text) => terminalRef.current?.input(text) ?? false,
@@ -173,6 +186,9 @@ export function usePersistentTerminalSession({
 	}, [taskId]);
 
 	const stopTerminal = useCallback(async () => {
+		if (readOnly) {
+			return;
+		}
 		const terminal = terminalRef.current;
 		if (!terminal) {
 			return;
@@ -185,11 +201,14 @@ export function usePersistentTerminalSession({
 		} finally {
 			setIsStopping(false);
 		}
-	}, []);
+	}, [readOnly]);
 
 	const clearTerminal = useCallback(() => {
+		if (readOnly) {
+			return;
+		}
 		terminalRef.current?.clear();
-	}, []);
+	}, [readOnly]);
 
 	const reconnectTerminal = useCallback(() => {
 		terminalRef.current?.reconnect();
@@ -200,6 +219,7 @@ export function usePersistentTerminalSession({
 		lastError,
 		isStopping,
 		connectionStatus,
+		restoreHadContent,
 		clearTerminal,
 		stopTerminal,
 		reconnectTerminal,

@@ -115,6 +115,9 @@ export async function shutdownRuntimeServer(deps: RuntimeShutdownCoordinatorDepe
 	const managedWorkspacePaths = new Set<string>();
 
 	for (const { workspacePath, terminalManager } of deps.workspaceRegistry.listManagedWorkspaces()) {
+		// Persist final scrollback before tearing down sessions: mirrors still hold
+		// the last screen here, and stopping first would only race exit teardown.
+		await terminalManager.persistAllTaskSnapshots();
 		// Stop live PTY processes even though we no longer trash their tasks or delete worktrees.
 		const interrupted = terminalManager.markInterruptedAndStopAll();
 		const runningTaskIds = collectShutdownRunningTaskIds(interrupted, terminalManager);

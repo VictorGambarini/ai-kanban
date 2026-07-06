@@ -520,7 +520,9 @@ export function CardDetailView({
 	const detailDiffContentPanelPercent = `${((1 - detailDiffFileTreeRatio) * 100).toFixed(1)}%`;
 	const detailDiffFileTreePanelFlex = `0 0 ${detailDiffFileTreePanelPercent}`;
 	const showMoveToTrashActions = selection.column.id === "review" || selection.column.id === "in_progress";
-	const isTaskTerminalEnabled = selection.column.id === "in_progress" || selection.column.id === "review";
+	const isTaskTerminalEnabled =
+		selection.column.id === "in_progress" || selection.column.id === "review" || selection.column.id === "trash";
+	const isTaskTerminalReadOnly = selection.column.id === "trash";
 	const effectiveTaskAgentId = sessionSummary?.agentId ?? selection.card.agentId ?? selectedAgentId;
 	const showClineAgentChatPanel = isNativeClineAgentSelected(effectiveTaskAgentId);
 	const availablePaths = useMemo(() => {
@@ -697,6 +699,7 @@ export function CardDetailView({
 			taskId={selection.card.id}
 			workspaceId={currentProjectId}
 			terminalEnabled={isTaskTerminalEnabled}
+			terminalReadOnly={isTaskTerminalReadOnly}
 			summary={sessionSummary}
 			onSummary={onSessionSummary}
 			onCommit={onAgentCommitTask ? () => onAgentCommitTask(selection.card.id) : undefined}
