@@ -530,7 +530,7 @@ export class TerminalSessionManager implements TerminalSessionService {
 
 					for (const taskListener of currentEntry.listeners.values()) {
 						taskListener.onState?.(cloneSummary(summary));
-						taskListener.onExit?.(event.exitCode);
+						taskListener.onExit?.(event.exitCode, shouldAutoRestart);
 					}
 					currentEntry.active = null;
 					this.emitSummary(summary);
@@ -711,7 +711,7 @@ export class TerminalSessionManager implements TerminalSessionService {
 
 					for (const taskListener of currentEntry.listeners.values()) {
 						taskListener.onState?.(cloneSummary(summary));
-						taskListener.onExit?.(event.exitCode);
+						taskListener.onExit?.(event.exitCode, false);
 					}
 					currentEntry.active = null;
 					this.emitSummary(summary);
