@@ -33,12 +33,37 @@ describe("TerminalStateMirror", () => {
 	it("preserves alternate-screen state when the active buffer is alternate", async () => {
 		const mirror = createMirror();
 
-		mirror.applyOutput(Buffer.from("\u001b[?1049h\u001b[Hfullscreen", "utf8"));
+		mirror.applyOutput(Buffer.from("[?1049h[Hfullscreen", "utf8"));
 
 		const snapshot = await mirror.getSnapshot();
 
-		expect(snapshot.snapshot).toContain("\u001b[?1049h");
+		expect(snapshot.snapshot).toContain("[?1049h");
 		expect(snapshot.snapshot).toContain("fullscreen");
+	});
+
+	it("preserves the alternate-screen content after the session leaves it (e.g. on agent exit)", async () => {
+		const mirror = createMirror();
+
+		mirror.applyOutput(Buffer.from("[?1049h[Hthe actual conversation", "utf8"));
+		// A well-behaved TUI leaves the alt screen on exit (xterm.js discards the alt
+		// buffer's content once inactive, so this must be captured going into the
+		// transition, not read back out afterward), then prints a thin exit message
+		// to the now-active normal buffer.
+		mirror.applyOutput(Buffer.from("[?1049lResume this session with: claude --resume abc123", "utf8"));
+
+		const snapshot = await mirror.getSnapshot();
+
+		expect(snapshot.snapshot).toContain("the actual conversation");
+	});
+
+	it("still shows freshly-written normal-buffer content when the alt screen was never used", async () => {
+		const mirror = createMirror();
+
+		mirror.applyOutput(Buffer.from("plain shell output, no TUI\r\n", "utf8"));
+
+		const snapshot = await mirror.getSnapshot();
+
+		expect(snapshot.snapshot).toContain("plain shell output, no TUI");
 	});
 
 	it("applies queued resizes before generating a snapshot", async () => {
@@ -62,9 +87,9 @@ describe("TerminalStateMirror", () => {
 		});
 		mirrors.push(mirror);
 
-		mirror.applyOutput(Buffer.from("\u001b[6n", "utf8"));
+		mirror.applyOutput(Buffer.from("[6n", "utf8"));
 		await mirror.getSnapshot();
 
-		expect(onInputResponse).toHaveBeenCalledWith("\u001b[1;1R");
+		expect(onInputResponse).toHaveBeenCalledWith("[1;1R");
 	});
 });
