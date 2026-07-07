@@ -60,6 +60,12 @@ export class HostsManager {
 	private readonly runtimeVersions = new Map<string, string>();
 	/** Runtime port per connected host, needed to rewrite the proxied Host header. */
 	private readonly runtimePorts = new Map<string, number>();
+	/**
+	 * Live state for reverse (dial-in) hosts, keyed by hostId. Populated by the
+	 * rendezvous server when a connector attaches; absent means disconnected. The
+	 * hub never dials out to these — the proxy just uses `forwardedPort`/`runtimePort`.
+	 */
+	private readonly reverseConnections = new Map<string, { forwardedPort: number; runtimePort: number }>();
 
 	constructor(options: HostsManagerOptions = {}) {
 		this.connectionManager = options.connectionManager ?? new RemoteHostConnectionManager();
@@ -68,12 +74,37 @@ export class HostsManager {
 		this.warn = options.warn ?? (() => {});
 	}
 
-	/** Connect every registered host. Safe to call once at server startup. */
+	/** Connect every registered SSH host. Safe to call once at server startup. */
 	async start(): Promise<void> {
 		const hosts = await listRemoteHosts();
 		for (const host of hosts) {
+			// Reverse hosts dial in to the rendezvous server; the hub never connects out.
+			if (host.transport === "reverse") {
+				continue;
+			}
 			this.beginConnection(host);
 		}
+	}
+
+	/** Mark a reverse (dial-in) host connected. Called by the rendezvous server on attach. */
+	setReverseHostConnected(hostId: string, info: { forwardedPort: number; runtimePort: number }): void {
+		this.reverseConnections.set(hostId, info);
+	}
+
+	/** Mark a reverse host disconnected (connector dropped). */
+	setReverseHostDisconnected(hostId: string): void {
+		this.reverseConnections.delete(hostId);
+	}
+
+	private statusForReverseHost(hostId: string): RemoteHostConnectionStatus {
+		const connection = this.reverseConnections.get(hostId);
+		return {
+			hostId,
+			state: connection ? "connected" : "disconnected",
+			localPort: connection?.forwardedPort ?? null,
+			error: null,
+			updatedAt: Date.now(),
+		};
 	}
 
 	listHosts(): Promise<RemoteHost[]> {
@@ -85,7 +116,10 @@ export class HostsManager {
 		const hosts = await listRemoteHosts();
 		return hosts.map((host) => ({
 			host,
-			status: this.connectionManager.getStatus(host.id),
+			status:
+				host.transport === "reverse"
+					? this.statusForReverseHost(host.id)
+					: this.connectionManager.getStatus(host.id),
 			runtimeError: this.runtimeErrors.get(host.id) ?? null,
 			runtimeVersion: this.runtimeVersions.get(host.id) ?? null,
 		}));
@@ -128,6 +162,7 @@ export class HostsManager {
 		this.runtimeErrors.delete(hostId);
 		this.runtimeVersions.delete(hostId);
 		this.runtimePorts.delete(hostId);
+		this.reverseConnections.delete(hostId);
 		return await removeRemoteHost(hostId);
 	}
 
@@ -135,6 +170,10 @@ export class HostsManager {
 		const host = await getRemoteHost(hostId);
 		if (!host) {
 			return null;
+		}
+		if (host.transport === "reverse") {
+			// Reverse hosts dial in; the hub can't initiate their connection.
+			return this.statusForReverseHost(hostId);
 		}
 		// Force a clean reconnect so an explicit retry also re-runs bootstrap (a
 		// runtime that failed to start won't re-trigger on an already-open tunnel).
@@ -153,6 +192,10 @@ export class HostsManager {
 		const host = await getRemoteHost(hostId);
 		if (!host) {
 			return null;
+		}
+		if (host.transport === "reverse") {
+			// The connector owns the reverse runtime lifecycle; nothing to restart from here.
+			return this.statusForReverseHost(hostId);
 		}
 		// Stop the current runtime while the tunnel is still up; if it isn't
 		// connected there's nothing to stop and the reconnect below relaunches it.
@@ -176,6 +219,7 @@ export class HostsManager {
 		this.runtimeErrors.delete(hostId);
 		this.runtimeVersions.delete(hostId);
 		this.runtimePorts.delete(hostId);
+		this.reverseConnections.delete(hostId);
 	}
 
 	getStatus(hostId: string): RemoteHostConnectionStatus | null {
@@ -188,6 +232,10 @@ export class HostsManager {
 
 	/** The hub loopback port that tunnels to a host's runtime, or null if not connected. */
 	getForwardedPort(hostId: string): number | null {
+		const reverse = this.reverseConnections.get(hostId);
+		if (reverse) {
+			return reverse.forwardedPort;
+		}
 		const status = this.connectionManager.getStatus(hostId);
 		return status?.state === "connected" ? status.localPort : null;
 	}
@@ -198,6 +246,10 @@ export class HostsManager {
 	 * loopback port on the hub differs from the port the remote is actually bound to.
 	 */
 	getRuntimePort(hostId: string): number | null {
+		const reverse = this.reverseConnections.get(hostId);
+		if (reverse) {
+			return reverse.runtimePort;
+		}
 		return this.runtimePorts.get(hostId) ?? null;
 	}
 

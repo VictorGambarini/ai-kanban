@@ -13,8 +13,8 @@ const notifyErrorMock = vi.hoisted(() => vi.fn());
 const showAppToastMock = vi.hoisted(() => vi.fn());
 const dismissAppToastMock = vi.hoisted(() => vi.fn());
 
-vi.mock("@/runtime/trpc-client", () => ({
-	getRuntimeTrpcClient: () => ({
+vi.mock("@/runtime/trpc-client", () => {
+	const client = () => ({
 		runtime: {
 			startTaskSession: {
 				mutate: startTaskSessionMutateMock,
@@ -28,8 +28,9 @@ vi.mock("@/runtime/trpc-client", () => ({
 				mutate: deleteWorktreeMutateMock,
 			},
 		},
-	}),
-}));
+	});
+	return { getRuntimeTrpcClient: client, getRuntimeTrpcClientForTask: client };
+});
 
 vi.mock("@/components/app-toaster", () => ({
 	notifyError: notifyErrorMock,

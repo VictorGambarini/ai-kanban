@@ -8,6 +8,7 @@ import { getRuntimeAgentCatalogEntry, isRuntimeAgentLaunchSupported } from "../c
 import { type AgentEnvConfig, isAgentEnvConfigEmpty, normalizeAgentEnvConfig } from "../core/agent-env";
 import type { RuntimeAgentId, RuntimeProjectShortcut } from "../core/api-contract";
 import { type LockRequest, lockedFileSystem } from "../fs/locked-file-system";
+import { type DockerSandboxProfile, dockerSandboxProfilesSchema } from "../sandbox/docker-sandbox-types";
 import { detectInstalledCommands } from "../terminal/agent-registry";
 import { areRuntimeProjectShortcutsEqual } from "./shortcut-utils";
 
@@ -31,6 +32,12 @@ interface RuntimeGlobalConfigFileShape {
 	 * contain secrets, so the global config file is chmod 600 on write.
 	 */
 	agentEnv?: AgentEnvConfig;
+	/**
+	 * Hub-central Docker sandbox profiles. Tasks targeted at `docker:<id>` resolve
+	 * their sandbox definition from here. Hub-only (like agentEnv) because docker
+	 * sandboxes are always created on the hub.
+	 */
+	dockerSandboxProfiles?: DockerSandboxProfile[];
 }
 
 interface RuntimeProjectConfigFileShape {
@@ -627,6 +634,32 @@ export async function saveAgentEnvConfig(config: AgentEnvConfig): Promise<AgentE
 			delete payload.agentEnv;
 		} else {
 			payload.agentEnv = normalized;
+		}
+		await lockedFileSystem.writeJsonFileAtomic(configPath, payload, { lock: null });
+		await restrictConfigFilePermissions(configPath);
+		return normalized;
+	});
+}
+
+/** Read the hub-central Docker sandbox profiles from the global config file. */
+export async function loadDockerSandboxProfiles(): Promise<DockerSandboxProfile[]> {
+	const configPath = getRuntimeGlobalConfigPath();
+	const existing = await readRuntimeConfigFile<RuntimeGlobalConfigFileShape>(configPath);
+	const parsed = dockerSandboxProfilesSchema.safeParse(existing?.dockerSandboxProfiles ?? []);
+	return parsed.success ? parsed.data : [];
+}
+
+/** Persist the hub-central Docker sandbox profiles, preserving other config fields. */
+export async function saveDockerSandboxProfiles(profiles: DockerSandboxProfile[]): Promise<DockerSandboxProfile[]> {
+	const configPath = getRuntimeGlobalConfigPath();
+	const normalized = dockerSandboxProfilesSchema.parse(profiles);
+	return await lockedFileSystem.withLocks([{ path: configPath, type: "file" }], async () => {
+		const existing = (await readRuntimeConfigFile<RuntimeGlobalConfigFileShape>(configPath)) ?? {};
+		const payload: RuntimeGlobalConfigFileShape = { ...existing };
+		if (normalized.length === 0) {
+			delete payload.dockerSandboxProfiles;
+		} else {
+			payload.dockerSandboxProfiles = normalized;
 		}
 		await lockedFileSystem.writeJsonFileAtomic(configPath, payload, { lock: null });
 		await restrictConfigFilePermissions(configPath);

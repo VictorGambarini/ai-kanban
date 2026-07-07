@@ -48,6 +48,8 @@ export interface BoardCard {
 	cliModel?: string;
 	clineSettings?: RuntimeTaskClineSettings;
 	skillNames?: string[];
+	/** Where this task executes: "local" (default/undefined), "ssh:<hostId>", or "docker:<profileId>". */
+	runtimeTarget?: string;
 	baseRef: string;
 	createdAt: number;
 	updatedAt: number;

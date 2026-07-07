@@ -87,6 +87,35 @@ describe("HostsManager + hosts API", () => {
 		expect(manager.getStatus(added.host.id)).toBeNull();
 	});
 
+	it("tracks reverse (dial-in) host forwarded + runtime ports", () => {
+		const manager = makeManager();
+		manager.setReverseHostConnected("laptop", { forwardedPort: 40001, runtimePort: 3486 });
+		expect(manager.getForwardedPort("laptop")).toBe(40001);
+		expect(manager.getRuntimePort("laptop")).toBe(3486);
+		manager.setReverseHostDisconnected("laptop");
+		expect(manager.getForwardedPort("laptop")).toBeNull();
+		expect(manager.getRuntimePort("laptop")).toBeNull();
+	});
+
+	it("addReverse fails when the rendezvous server is disabled", async () => {
+		const manager = makeManager();
+		const api = createHostsApi({ hostsManager: manager });
+		await expect(api.addReverse({ label: "Laptop" })).rejects.toThrow(/dial-in/i);
+	});
+
+	it("addReverse returns a one-time token + rendezvous info when enabled", async () => {
+		const manager = makeManager();
+		const api = createHostsApi({
+			hostsManager: manager,
+			getRendezvousInfo: () => ({ port: 3485, fingerprint: "SHA256:abc" }),
+		});
+		const result = await api.addReverse({ label: "Laptop" });
+		expect(result.host.transport).toBe("reverse");
+		expect(result.token).toBeTruthy();
+		expect(result.rendezvousPort).toBe(3485);
+		expect(result.hostKeyFingerprint).toBe("SHA256:abc");
+	});
+
 	it("restart returns null for an unknown host", async () => {
 		const manager = makeManager();
 		const api = createHostsApi({ hostsManager: manager });

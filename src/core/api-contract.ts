@@ -75,6 +75,39 @@ export type RuntimeSlashCommandsResponse = z.infer<typeof runtimeSlashCommandsRe
 export const runtimeAgentIdSchema = z.enum(["claude", "codex", "gemini", "opencode", "droid", "kiro", "cline"]);
 export type RuntimeAgentId = z.infer<typeof runtimeAgentIdSchema>;
 
+/**
+ * Where a task's agent + worktree execute:
+ * - `"local"` (or absent) — the runtime that owns the board (the hub).
+ * - `"ssh:<hostId>"` — dispatch execution to a registered remote host's runtime.
+ * - `"docker:<profileId>"` — run the agent inside a per-task Sysbox sandbox.
+ *
+ * Only the *execution* of a task routes to this target; the board card itself
+ * always lives on the hub. See {@link parseRuntimeTaskTarget}.
+ */
+export const RUNTIME_TASK_TARGET_LOCAL = "local";
+export const runtimeTaskTargetSchema = z
+	.string()
+	.refine((value) => value === RUNTIME_TASK_TARGET_LOCAL || /^ssh:.+$/.test(value) || /^docker:.+$/.test(value), {
+		message: 'runtimeTarget must be "local", "ssh:<hostId>", or "docker:<profileId>".',
+	});
+export type RuntimeTaskTarget = z.infer<typeof runtimeTaskTargetSchema>;
+
+/** Structured view of a {@link RuntimeTaskTarget} string. */
+export type ParsedRuntimeTaskTarget =
+	| { kind: "local" }
+	| { kind: "ssh"; hostId: string }
+	| { kind: "docker"; profileId: string };
+
+/** Parse a `runtimeTarget` string; `undefined`/unknown values fall back to local. */
+export function parseRuntimeTaskTarget(value: string | undefined | null): ParsedRuntimeTaskTarget {
+	if (!value || value === RUNTIME_TASK_TARGET_LOCAL) return { kind: "local" };
+	const sshMatch = /^ssh:(.+)$/.exec(value);
+	if (sshMatch?.[1]) return { kind: "ssh", hostId: sshMatch[1] };
+	const dockerMatch = /^docker:(.+)$/.exec(value);
+	if (dockerMatch?.[1]) return { kind: "docker", profileId: dockerMatch[1] };
+	return { kind: "local" };
+}
+
 const runtimeBoardColumnIdEnum = z.enum(["backlog", "in_progress", "review", "trash"]);
 export const runtimeBoardColumnIdSchema = z.preprocess(
 	(val) => (val === "done" ? "trash" : val),
@@ -184,6 +217,7 @@ export const runtimeBoardCardSchema = z
 		cliModel: z.string().optional(),
 		clineSettings: runtimeTaskClineSettingsSchema.optional(),
 		skillNames: z.array(z.string()).optional(),
+		runtimeTarget: runtimeTaskTargetSchema.optional(),
 		clineProviderId: z.string().optional(),
 		clineModelId: z.string().optional(),
 		clineReasoningEffort: runtimeLegacyTaskClineReasoningEffortSchema.optional(),
@@ -1039,6 +1073,11 @@ export const runtimeTaskSessionStartRequestSchema = z.object({
 	cliModel: z.string().optional(),
 	clineSettings: runtimeTaskClineSettingsSchema.optional(),
 	skillNames: z.array(z.string()).optional(),
+	/**
+	 * Execution target for this launch (informational for the runtime; routing to
+	 * a remote/docker target is handled by the hub proxy via `x-kanban-host-id`).
+	 */
+	runtimeTarget: runtimeTaskTargetSchema.optional(),
 	/**
 	 * Effective custom env vars for this launch, already resolved on the hub from
 	 * the global/project/task scopes (see {@link resolveEffectiveAgentEnv}). The

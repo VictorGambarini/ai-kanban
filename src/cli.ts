@@ -8,6 +8,7 @@ import ora, { type Ora } from "ora";
 import packageJson from "../package.json" with { type: "json" };
 import { type PasscodeOption, parseCliPasscodeValue, resolvePasscodeOption } from "./cli-passcode-options";
 import { disposeCliTelemetryService } from "./cline-sdk/cline-telemetry-service.js";
+import { registerConnectCommand } from "./commands/connect";
 import { registerHooksCommand } from "./commands/hooks";
 import { registerHostsCommand } from "./commands/hosts";
 import { registerTaskCommand } from "./commands/task";
@@ -50,6 +51,10 @@ interface CliOptions {
 	key: string | null;
 	passcode: PasscodeOption;
 	allowedHosts: string[];
+	/** Rendezvous (dial-in host) server port, or null to disable. */
+	rendezvousPort: number | null;
+	/** Rendezvous bind interface, or null for the loopback default. */
+	rendezvousBind: string | null;
 }
 
 const KANBAN_VERSION = typeof packageJson.version === "string" ? packageJson.version : "0.1.0";
@@ -72,6 +77,23 @@ function parseCliPortValue(rawValue: string): { mode: "fixed"; value: number } |
 		throw new Error(`Invalid port value: ${rawValue}. Expected an integer from 1-65535 or "auto".`);
 	}
 }
+
+/** Resolve the rendezvous port from the CLI flag or `KANBAN_RENDEZVOUS_PORT`; null disables it. */
+function resolveRendezvousPort(cliValue: string | undefined): number | null {
+	const raw = (cliValue ?? process.env.KANBAN_RENDEZVOUS_PORT ?? "").trim();
+	if (!raw) {
+		return null;
+	}
+	return parseRuntimePort(raw);
+}
+
+/** Resolve the rendezvous bind interface from the CLI flag or `KANBAN_RENDEZVOUS_BIND`. */
+function resolveRendezvousBind(cliValue: string | undefined): string | null {
+	return (cliValue ?? process.env.KANBAN_RENDEZVOUS_BIND ?? "").trim() || null;
+}
+
+/** Set in {@link runMainCommand}, read in {@link startServer} (mirrors host/port globals). */
+let rendezvousServerConfig: { port: number; bindAddress?: string } | null = null;
 
 /** Commander reducer for the repeatable `--allowed-host` option. */
 function collectAllowedHost(value: string, previous: string[]): string[] {
@@ -96,6 +118,8 @@ interface RootCommandOptions {
 	// negated, and `true`/undefined when neither flag is supplied.
 	passcode?: string | boolean;
 	allowedHost?: string[];
+	rendezvousPort?: string;
+	rendezvousBind?: string;
 }
 
 type ShutdownIndicatorResult = "done" | "interrupted" | "failed";
@@ -523,6 +547,8 @@ async function startServer(): Promise<{
 				message: result.message,
 			};
 		},
+		rendezvousPort: rendezvousServerConfig?.port,
+		rendezvousBindAddress: rendezvousServerConfig?.bindAddress,
 	});
 
 	const close = async () => {
@@ -576,6 +602,15 @@ async function runMainCommand(options: CliOptions, shouldAutoOpenBrowser: boolea
 	setExtraAllowedHosts(options.allowedHosts);
 	if (options.allowedHosts.length > 0) {
 		console.log(`Accepting extra Host/Origin name(s): ${options.allowedHosts.join(", ")}.`);
+	}
+
+	if (options.rendezvousPort !== null) {
+		rendezvousServerConfig = {
+			port: options.rendezvousPort,
+			bindAddress: options.rendezvousBind ?? undefined,
+		};
+		const bindLabel = options.rendezvousBind ?? "127.0.0.1";
+		console.log(`Accepting dial-in hosts on rendezvous port ${options.rendezvousPort} (bind ${bindLabel}).`);
 	}
 
 	const [{ openInBrowser }, { autoUpdateOnStartup, runPendingAutoUpdateOnShutdown }] = await Promise.all([
@@ -730,6 +765,11 @@ function createProgram(invocationArgs: string[]): Command {
 		.option("--https", "Enable HTTPS. Requires both --cert and --key.")
 		.option("--cert <path>", "Path to a TLS certificate PEM file (implies HTTPS).")
 		.option("--key <path>", "Path to a TLS private key PEM file (implies HTTPS).")
+		.option(
+			"--rendezvous-port <number>",
+			"Enable the dial-in rendezvous server on this port so reverse hosts (laptops behind NAT) can attach. Bind it to a private interface (e.g. Tailscale), never publicly.",
+		)
+		.option("--rendezvous-bind <ip>", "Interface the rendezvous server binds to (default: 127.0.0.1).")
 		.option("--update", "Update Kanban to the latest published version and exit.")
 		.option(
 			"--no-passcode",
@@ -754,6 +794,7 @@ function createProgram(invocationArgs: string[]): Command {
 	registerTaskCommand(program);
 	registerHooksCommand(program);
 	registerHostsCommand(program);
+	registerConnectCommand(program);
 
 	program
 		.command("mcp")
@@ -785,6 +826,8 @@ function createProgram(invocationArgs: string[]): Command {
 				key: options.key ?? null,
 				passcode: resolvePasscodeOption(options.passcode),
 				allowedHosts: options.allowedHost ?? [],
+				rendezvousPort: resolveRendezvousPort(options.rendezvousPort),
+				rendezvousBind: resolveRendezvousBind(options.rendezvousBind),
 			},
 			shouldAutoOpenBrowser,
 		);

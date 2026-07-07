@@ -32,6 +32,7 @@ import { Spinner } from "@/components/ui/spinner";
 import { UpdateNotificationController } from "@/components/update-notification-controller";
 import { createInitialBoardData } from "@/data/board-data";
 import { createIdleTaskSession } from "@/hooks/app-utils";
+import { selectNewestTaskSessionSummary } from "@/hooks/home-sidebar-agent-panel-session-summary";
 import { KanbanAccessBlockedFallback } from "@/hooks/kanban-access-blocked-fallback";
 import { RuntimeDisconnectedFallback } from "@/hooks/runtime-disconnected-fallback";
 import { useAppHotkeys } from "@/hooks/use-app-hotkeys";
@@ -58,6 +59,7 @@ import { useWorkspaceSync } from "@/hooks/use-workspace-sync";
 import { LayoutCustomizationsProvider } from "@/resize/layout-customizations";
 import { ResizableBottomPane } from "@/resize/resizable-bottom-pane";
 import { useProjectNavigationLayout } from "@/resize/use-project-navigation-layout";
+import { LOCAL_HOST_ID, resolveHostIdForTarget } from "@/runtime/active-host";
 import {
 	getTaskAgentNavbarHint,
 	isTaskAgentSetupSatisfied,
@@ -65,6 +67,7 @@ import {
 	selectTaskChatMessagesForTask,
 } from "@/runtime/native-agent";
 import type { RuntimeClineReasoningEffort, RuntimeTaskSessionSummary } from "@/runtime/types";
+import { useRemoteSessionStreams } from "@/runtime/use-remote-session-streams";
 import { useRuntimeProjectConfig } from "@/runtime/use-runtime-project-config";
 import { useTerminalConnectionReady } from "@/runtime/use-terminal-connection-ready";
 import { useWorkspacePersistence } from "@/runtime/use-workspace-persistence";
@@ -237,6 +240,43 @@ export default function App(): ReactElement {
 		setSessions,
 		setCanPersistWorkspaceState,
 	});
+	// Tasks targeted at SSH hosts run on those hosts' runtimes, so their live session
+	// summaries arrive on the hosts' state streams. Fan those in alongside the hub stream.
+	const remoteHostIds = useMemo(() => {
+		const ids = new Set<string>();
+		for (const column of board.columns) {
+			for (const card of column.cards) {
+				const hostId = resolveHostIdForTarget(card.runtimeTarget);
+				if (hostId !== LOCAL_HOST_ID) {
+					ids.add(hostId);
+				}
+			}
+		}
+		return [...ids];
+	}, [board]);
+	const mergeRemoteSessionSummaries = useCallback(
+		(summaries: RuntimeTaskSessionSummary[]) => {
+			setSessions((current) => {
+				let next = current;
+				for (const summary of summaries) {
+					const newest = selectNewestTaskSessionSummary(next[summary.taskId] ?? null, summary);
+					if (newest && newest !== next[summary.taskId]) {
+						if (next === current) {
+							next = { ...current };
+						}
+						next[summary.taskId] = newest;
+					}
+				}
+				return next;
+			});
+		},
+		[setSessions],
+	);
+	useRemoteSessionStreams({
+		workspaceId: currentProjectId,
+		remoteHostIds,
+		onSessionSummaries: mergeRemoteSessionSummaries,
+	});
 	const { selectedTaskId, selectedCard, setSelectedTaskId, handleBack } = useDetailTaskNavigation({
 		board,
 		currentProjectId,
@@ -319,6 +359,8 @@ export default function App(): ReactElement {
 		setNewTaskClineSettings,
 		newTaskSkillNames,
 		setNewTaskSkillNames,
+		newTaskRuntimeTarget,
+		setNewTaskRuntimeTarget,
 		newTaskEnv,
 		setNewTaskEnv,
 		editingTaskId,
@@ -343,6 +385,8 @@ export default function App(): ReactElement {
 		setEditTaskClineSettings,
 		editTaskSkillNames,
 		setEditTaskSkillNames,
+		editTaskRuntimeTarget,
+		setEditTaskRuntimeTarget,
 		handleOpenCreateTask,
 		handleCancelCreateTask,
 		handleOpenEditTask,
@@ -846,6 +890,8 @@ export default function App(): ReactElement {
 			onClineSettingsChange={setEditTaskClineSettings}
 			skillNames={editTaskSkillNames}
 			onSkillNamesChange={setEditTaskSkillNames}
+			runtimeTarget={editTaskRuntimeTarget}
+			onRuntimeTargetChange={setEditTaskRuntimeTarget}
 			defaultAgentId={runtimeProjectConfig?.selectedAgentId ?? null}
 			defaultProviderId={defaultTaskClineProviderId}
 			defaultModelId={runtimeProjectConfig?.clineProviderSettings?.modelId ?? null}
@@ -1202,6 +1248,8 @@ export default function App(): ReactElement {
 					onClineSettingsChange={setNewTaskClineSettings}
 					skillNames={newTaskSkillNames}
 					onSkillNamesChange={setNewTaskSkillNames}
+					runtimeTarget={newTaskRuntimeTarget}
+					onRuntimeTargetChange={setNewTaskRuntimeTarget}
 					env={newTaskEnv}
 					onEnvChange={setNewTaskEnv}
 					defaultAgentId={runtimeProjectConfig?.selectedAgentId ?? null}

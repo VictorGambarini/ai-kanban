@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { notifyError } from "@/components/app-toaster";
 import { createInitialBoardData } from "@/data/board-data";
 import { selectNewestTaskSessionSummary } from "@/hooks/home-sidebar-agent-panel-session-summary";
+import { syncTaskHosts } from "@/runtime/task-host-registry";
 import type {
 	RuntimeGitRepositoryInfo,
 	RuntimeTaskSessionSummary,
@@ -116,6 +117,9 @@ export function useWorkspaceSync({
 			if (shouldHydrateBoard) {
 				const normalized = normalizeBoardData(nextWorkspaceState.board) ?? createInitialBoardData();
 				setBoard(normalized);
+				// Keep per-task execution routing correct across reloads: any op that only
+				// carries a taskId resolves its host from this registry.
+				syncTaskHosts(normalized.columns.flatMap((column) => column.cards));
 				setWorkspaceHydrationNonce((current) => current + 1);
 			}
 			setWorkspaceRevision(nextWorkspaceState.revision);

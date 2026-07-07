@@ -610,6 +610,36 @@ describe("board dependency state", () => {
 		expect(cardB?.skillNames).toBeUndefined();
 	});
 
+	// Regression guard for the same normalizeCard footgun as skillNames: a new
+	// persisted per-task field must be threaded through both the destructure and the
+	// return of normalizeCard, or it is silently stripped on board hydration.
+	it("preserves persisted task runtimeTarget when normalizing a board", () => {
+		const rawBoard = {
+			columns: [
+				{
+					id: "in_progress",
+					cards: [
+						{ id: "a", prompt: "Task A", startInPlanMode: false, baseRef: "main", runtimeTarget: "ssh:vm-1" },
+						{ id: "b", prompt: "Task B", startInPlanMode: false, baseRef: "main", runtimeTarget: "docker:web" },
+						// "local" is the default and normalizes to undefined.
+						{ id: "c", prompt: "Task C", startInPlanMode: false, baseRef: "main", runtimeTarget: "local" },
+						// A missing target stays undefined.
+						{ id: "d", prompt: "Task D", startInPlanMode: false, baseRef: "main" },
+					],
+				},
+			],
+			dependencies: [],
+		};
+
+		const normalized = normalizeBoardData(rawBoard);
+		expect(normalized).not.toBeNull();
+		const cards = normalized?.columns.find((column) => column.id === "in_progress")?.cards ?? [];
+		expect(cards.find((card) => card.id === "a")?.runtimeTarget).toBe("ssh:vm-1");
+		expect(cards.find((card) => card.id === "b")?.runtimeTarget).toBe("docker:web");
+		expect(cards.find((card) => card.id === "c")?.runtimeTarget).toBeUndefined();
+		expect(cards.find((card) => card.id === "d")?.runtimeTarget).toBeUndefined();
+	});
+
 	it("disables auto-review settings for a task", () => {
 		let board = createInitialBoardData();
 		board = addTaskToColumn(board, "review", {

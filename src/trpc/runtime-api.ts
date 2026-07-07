@@ -15,7 +15,9 @@ import type { ClineTaskSessionService } from "../cline-sdk/cline-task-session-se
 import type { RuntimeConfigState } from "../config/runtime-config";
 import {
 	loadAgentEnvConfig,
+	loadDockerSandboxProfiles,
 	saveAgentEnvConfig,
+	saveDockerSandboxProfiles,
 	updateGlobalRuntimeConfig,
 	updateRuntimeConfig,
 } from "../config/runtime-config";
@@ -25,6 +27,7 @@ import type {
 	RuntimeRunUpdateResponse,
 	RuntimeUpdateStatusResponse,
 } from "../core/api-contract";
+import { parseRuntimeTaskTarget } from "../core/api-contract";
 import {
 	parseAgentEnvSaveRequest,
 	parseClineAccountSwitchRequest,
@@ -52,6 +55,8 @@ import {
 } from "../core/api-validation";
 import { isHomeAgentSessionId } from "../core/home-agent-session";
 import { resolveTaskTitle } from "../core/task-title.js";
+import { dockerSandboxProfilesSchema } from "../sandbox/docker-sandbox-types";
+import { ensureSandbox, type SandboxExecWrapper, teardownSandbox } from "../sandbox/sandbox-manager";
 import { openInBrowser } from "../server/browser";
 import { buildRuntimeConfigResponse, resolveAgentCommand } from "../terminal/agent-registry";
 import type { TerminalSessionManager } from "../terminal/session-manager";
@@ -164,6 +169,13 @@ export function createRuntimeApi(deps: CreateRuntimeApiDependencies): RuntimeTrp
 			const body = parseAgentEnvSaveRequest(input);
 			return await saveAgentEnvConfig(body);
 		},
+		getDockerSandboxProfiles: async () => {
+			return { profiles: await loadDockerSandboxProfiles() };
+		},
+		saveDockerSandboxProfiles: async (_workspaceScope, input) => {
+			const profiles = dockerSandboxProfilesSchema.parse(input);
+			return { profiles: await saveDockerSandboxProfiles(profiles) };
+		},
 		saveClineProviderSettings: async (_workspaceScope, input) => {
 			const body = parseClineProviderSettingsSaveRequest(input);
 			const response = clineProviderService.saveProviderSettings(body);
@@ -245,6 +257,7 @@ export function createRuntimeApi(deps: CreateRuntimeApiDependencies): RuntimeTrp
 					? (terminalManager.getSummary(body.taskId)?.agentId ?? null)
 					: null;
 				const effectiveAgentId = previousTerminalAgentId ?? body.agentId ?? scopedRuntimeConfig.selectedAgentId;
+				const parsedRuntimeTarget = parseRuntimeTaskTarget(body.runtimeTarget);
 
 				// Inject selected skills into the task worktree filesystem before the agent starts.
 				// Skills are copied from the workspace skill store into the worktree so agents load
@@ -272,6 +285,14 @@ export function createRuntimeApi(deps: CreateRuntimeApiDependencies): RuntimeTrp
 					if (persistedSession) {
 						useClinePath = true;
 					}
+				}
+
+				if (parsedRuntimeTarget.kind === "docker" && useClinePath) {
+					return {
+						ok: false,
+						summary: null,
+						error: "Docker sandboxes can't run the in-process Cline agent. Choose a CLI agent (e.g. Claude Code) or a different runtime.",
+					};
 				}
 
 				if (useClinePath) {
@@ -336,6 +357,32 @@ export function createRuntimeApi(deps: CreateRuntimeApiDependencies): RuntimeTrp
 						error: "No runnable agent command is configured. Open Settings, install a supported CLI, and select it.",
 					};
 				}
+
+				// For a docker-targeted task, bring up its per-task Sysbox sandbox (and the
+				// project's unmodified compose stack) and run the agent inside it via `docker exec`.
+				let execWrapper: SandboxExecWrapper | undefined;
+				if (parsedRuntimeTarget.kind === "docker") {
+					const profile = (await loadDockerSandboxProfiles()).find(
+						(candidate) => candidate.id === parsedRuntimeTarget.profileId,
+					);
+					if (!profile) {
+						return {
+							ok: false,
+							summary: null,
+							error: `Docker sandbox profile "${parsedRuntimeTarget.profileId}" was not found. Add it in Settings → Docker sandboxes.`,
+						};
+					}
+					try {
+						execWrapper = await ensureSandbox({ taskId: body.taskId, worktreeHostPath: taskCwd, profile });
+					} catch (error) {
+						return {
+							ok: false,
+							summary: null,
+							error: `Failed to start the Docker sandbox: ${error instanceof Error ? error.message : String(error)}`,
+						};
+					}
+				}
+
 				const summary = await terminalManager.startTaskSession({
 					taskId: body.taskId,
 					agentId: resolved.agentId,
@@ -358,6 +405,7 @@ export function createRuntimeApi(deps: CreateRuntimeApiDependencies): RuntimeTrp
 					// Re-normalized here so the runtime never trusts arbitrary keys.
 					env: body.env ? normalizeAgentEnvMap(body.env) : undefined,
 					workspaceId: workspaceScope.workspaceId,
+					execWrapper,
 				});
 
 				let nextSummary = summary;
@@ -400,6 +448,9 @@ export function createRuntimeApi(deps: CreateRuntimeApiDependencies): RuntimeTrp
 				}
 				const terminalManager = await deps.getScopedTerminalManager(workspaceScope);
 				const summary = terminalManager.stopTaskSession(body.taskId);
+				// Tear down the task's Docker sandbox (no-op unless it had one). Killing the
+				// `docker exec` PTY alone leaves the container + inner engine + stack running.
+				void teardownSandbox(body.taskId);
 				return {
 					ok: Boolean(summary),
 					summary,

@@ -66,6 +66,8 @@ export interface UseTaskEditorResult {
 	setNewTaskClineSettings: Dispatch<SetStateAction<RuntimeTaskClineSettings | undefined>>;
 	newTaskSkillNames: string[];
 	setNewTaskSkillNames: Dispatch<SetStateAction<string[]>>;
+	newTaskRuntimeTarget: string | undefined;
+	setNewTaskRuntimeTarget: Dispatch<SetStateAction<string | undefined>>;
 	newTaskEnv: AgentEnvMap;
 	setNewTaskEnv: Dispatch<SetStateAction<AgentEnvMap>>;
 	editingTaskId: string | null;
@@ -90,6 +92,8 @@ export interface UseTaskEditorResult {
 	setEditTaskClineSettings: Dispatch<SetStateAction<RuntimeTaskClineSettings | undefined>>;
 	editTaskSkillNames: string[];
 	setEditTaskSkillNames: Dispatch<SetStateAction<string[]>>;
+	editTaskRuntimeTarget: string | undefined;
+	setEditTaskRuntimeTarget: Dispatch<SetStateAction<string | undefined>>;
 	handleOpenCreateTask: () => void;
 	handleCancelCreateTask: () => void;
 	handleOpenEditTask: (task: BoardCard, options?: OpenEditTaskOptions) => void;
@@ -147,12 +151,15 @@ export function useTaskEditor({
 	const [newTaskClineSettings, setNewTaskClineSettings] = useState<RuntimeTaskClineSettings | undefined>(undefined);
 	// New tasks default to the last selection made in this workspace (see skill-preferences).
 	const [newTaskSkillNames, setNewTaskSkillNames] = useState<string[]>(() => readLastUsedSkillNames(currentProjectId));
+	// Execution target for a not-yet-created task; undefined means the local hub.
+	const [newTaskRuntimeTarget, setNewTaskRuntimeTarget] = useState<string | undefined>(undefined);
 	// Custom env for a not-yet-created task; persisted to the hub config once the task has an id.
 	const [newTaskEnv, setNewTaskEnv] = useState<AgentEnvMap>({});
 	const [editTaskAgentId, setEditTaskAgentId] = useState<RuntimeAgentId | undefined>(undefined);
 	const [editTaskCliModel, setEditTaskCliModel] = useState<string | undefined>(undefined);
 	const [editTaskClineSettings, setEditTaskClineSettings] = useState<RuntimeTaskClineSettings | undefined>(undefined);
 	const [editTaskSkillNames, setEditTaskSkillNames] = useState<string[]>([]);
+	const [editTaskRuntimeTarget, setEditTaskRuntimeTarget] = useState<string | undefined>(undefined);
 
 	const lastCreatedTaskBranchRef = useMemo(() => {
 		if (!currentProjectId) {
@@ -239,6 +246,7 @@ export function useTaskEditor({
 		setNewTaskCliModel(undefined);
 		setNewTaskClineSettings(undefined);
 		setNewTaskSkillNames(readLastUsedSkillNames(currentProjectId));
+		setNewTaskRuntimeTarget(undefined);
 		setNewTaskEnv({});
 		setIsInlineTaskCreateOpen(true);
 	}, [currentProjectId]);
@@ -253,6 +261,7 @@ export function useTaskEditor({
 		setNewTaskCliModel(undefined);
 		setNewTaskClineSettings(undefined);
 		setNewTaskSkillNames(readLastUsedSkillNames(currentProjectId));
+		setNewTaskRuntimeTarget(undefined);
 		setNewTaskEnv({});
 	}, [currentProjectId, resolvedDefaultTaskBranchRef]);
 
@@ -281,6 +290,7 @@ export function useTaskEditor({
 			// Backlog cards created without an explicit skill selection fall back to the
 			// workspace's last-used skills, same default new tasks get (see skill-preferences).
 			setEditTaskSkillNames(task.skillNames ?? readLastUsedSkillNames(currentProjectId));
+			setEditTaskRuntimeTarget(task.runtimeTarget);
 		},
 		[currentProjectId, resolvedDefaultTaskBranchRef, setSelectedTaskId],
 	);
@@ -295,6 +305,7 @@ export function useTaskEditor({
 		setEditTaskImages([]);
 		setEditTaskBranchRef("");
 		setEditTaskSkillNames([]);
+		setEditTaskRuntimeTarget(undefined);
 	}, []);
 
 	const handleSaveEditedTask = useCallback((): string | null => {
@@ -326,6 +337,7 @@ export function useTaskEditor({
 				cliModel: editTaskCliModel,
 				clineSettings: editTaskClineSettings,
 				skillNames: editTaskSkillNames.length > 0 ? editTaskSkillNames : undefined,
+				runtimeTarget: editTaskRuntimeTarget,
 				baseRef,
 			});
 			return updated.updated ? updated.board : currentBoard;
@@ -342,6 +354,7 @@ export function useTaskEditor({
 		setEditTaskCliModel(undefined);
 		setEditTaskClineSettings(undefined);
 		setEditTaskSkillNames([]);
+		setEditTaskRuntimeTarget(undefined);
 		return savedTaskId;
 	}, [
 		editTaskAgentId,
@@ -351,6 +364,7 @@ export function useTaskEditor({
 		editTaskBranchRef,
 		editTaskClineSettings,
 		editTaskSkillNames,
+		editTaskRuntimeTarget,
 		editTaskPrompt,
 		editTaskImages,
 		editTaskStartInPlanMode,
@@ -399,6 +413,7 @@ export function useTaskEditor({
 				cliModel: newTaskCliModel,
 				clineSettings: newTaskClineSettings,
 				skillNames: newTaskSkillNames.length > 0 ? newTaskSkillNames : undefined,
+				runtimeTarget: newTaskRuntimeTarget,
 				baseRef,
 			});
 			setBoard(created.board);
@@ -438,6 +453,7 @@ export function useTaskEditor({
 			setNewTaskCliModel(undefined);
 			setNewTaskClineSettings(undefined);
 			setNewTaskSkillNames(readLastUsedSkillNames(currentProjectId));
+			setNewTaskRuntimeTarget(undefined);
 			setNewTaskEnv({});
 			if (!options?.keepDialogOpen) {
 				setIsInlineTaskCreateOpen(false);
@@ -454,6 +470,7 @@ export function useTaskEditor({
 			newTaskBranchRef,
 			newTaskClineSettings,
 			newTaskSkillNames,
+			newTaskRuntimeTarget,
 			newTaskEnv,
 			newTaskImages,
 			newTaskPrompt,
@@ -491,6 +508,7 @@ export function useTaskEditor({
 					cliModel: newTaskCliModel,
 					clineSettings: newTaskClineSettings,
 					skillNames: newTaskSkillNames.length > 0 ? newTaskSkillNames : undefined,
+					runtimeTarget: newTaskRuntimeTarget,
 					baseRef,
 				});
 				updatedBoard = created.board;
@@ -528,6 +546,7 @@ export function useTaskEditor({
 			setNewTaskCliModel(undefined);
 			setNewTaskClineSettings(undefined);
 			setNewTaskSkillNames(readLastUsedSkillNames(currentProjectId));
+			setNewTaskRuntimeTarget(undefined);
 			if (!options?.keepDialogOpen) {
 				setIsInlineTaskCreateOpen(false);
 			}
@@ -543,6 +562,7 @@ export function useTaskEditor({
 			newTaskBranchRef,
 			newTaskClineSettings,
 			newTaskSkillNames,
+			newTaskRuntimeTarget,
 			newTaskImages,
 			newTaskStartInPlanMode,
 			refreshRuntimeConfig,
@@ -571,11 +591,13 @@ export function useTaskEditor({
 		setEditTaskCliModel(undefined);
 		setEditTaskClineSettings(undefined);
 		setEditTaskSkillNames([]);
+		setEditTaskRuntimeTarget(undefined);
 		setNewTaskImages([]);
 		setNewTaskAgentId(undefined);
 		setNewTaskCliModel(undefined);
 		setNewTaskClineSettings(undefined);
 		setNewTaskSkillNames(readLastUsedSkillNames(currentProjectId));
+		setNewTaskRuntimeTarget(undefined);
 		setNewTaskEnv({});
 	}, [currentProjectId]);
 
@@ -602,6 +624,8 @@ export function useTaskEditor({
 		setNewTaskClineSettings,
 		newTaskSkillNames,
 		setNewTaskSkillNames,
+		newTaskRuntimeTarget,
+		setNewTaskRuntimeTarget,
 		newTaskEnv,
 		setNewTaskEnv,
 		editingTaskId,
@@ -626,6 +650,8 @@ export function useTaskEditor({
 		setEditTaskClineSettings,
 		editTaskSkillNames,
 		setEditTaskSkillNames,
+		editTaskRuntimeTarget,
+		setEditTaskRuntimeTarget,
 		handleOpenCreateTask,
 		handleCancelCreateTask,
 		handleOpenEditTask,

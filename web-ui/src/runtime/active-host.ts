@@ -51,14 +51,38 @@ export function setActiveHostId(hostId: string, reload: () => void = () => windo
 	reload();
 }
 
+/** Headers to attach to a runtime request for the given host id (empty when local). */
+export function hostHeadersForHostId(hostId: string): Record<string, string> {
+	return hostId === LOCAL_HOST_ID ? {} : { "x-kanban-host-id": hostId };
+}
+
+/** Append the given host id to a WebSocket URL when it is not the hub. */
+export function applyHostIdToUrl(url: URL, hostId: string): void {
+	if (hostId !== LOCAL_HOST_ID) {
+		url.searchParams.set("hostId", hostId);
+	}
+}
+
 /** Headers to attach to a runtime request for the active host (empty when local). */
 export function activeHostHeaders(): Record<string, string> {
-	return isLocalActiveHost() ? {} : { "x-kanban-host-id": activeHostId };
+	return hostHeadersForHostId(activeHostId);
 }
 
 /** Append the active host id to a WebSocket URL when targeting a remote host. */
 export function applyActiveHostToUrl(url: URL): void {
-	if (!isLocalActiveHost()) {
-		url.searchParams.set("hostId", activeHostId);
+	applyHostIdToUrl(url, activeHostId);
+}
+
+/**
+ * Resolve which host id a task's *execution* routes to, from its `runtimeTarget`:
+ * - `"ssh:<hostId>"` → that host (the hub proxies execution ops there).
+ * - `"local"` / `"docker:<profile>"` / absent → the hub (`LOCAL_HOST_ID`); docker
+ *   sandboxes are created by the hub itself, so they route locally.
+ */
+export function resolveHostIdForTarget(runtimeTarget: string | undefined | null): string {
+	if (!runtimeTarget) {
+		return LOCAL_HOST_ID;
 	}
+	const sshMatch = /^ssh:(.+)$/.exec(runtimeTarget.trim());
+	return sshMatch?.[1] ? sshMatch[1] : LOCAL_HOST_ID;
 }

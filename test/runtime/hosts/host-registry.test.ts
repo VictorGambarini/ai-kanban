@@ -8,9 +8,11 @@ import {
 	getRemoteHost,
 	listRemoteHosts,
 	registerRemoteHost,
+	registerReverseHost,
 	removeRemoteHost,
 	updateRemoteHost,
 } from "../../../src/hosts/host-registry";
+import { hashReverseHostToken } from "../../../src/hosts/host-types";
 
 let tempHome: string;
 let previousHome: string | undefined;
@@ -43,13 +45,27 @@ describe("host-registry", () => {
 		await expect(listRemoteHosts()).resolves.toEqual([]);
 	});
 
+	it("registers a reverse (dial-in) host, storing only the token hash", async () => {
+		const { host, token } = await registerReverseHost({ label: "My Laptop" });
+		expect(host.transport).toBe("reverse");
+		expect(host.ssh).toBeUndefined();
+		expect(token).toBeTruthy();
+		// The plaintext token is never persisted; only its hash.
+		expect(host.reverse?.tokenHash).toBe(hashReverseHostToken(token));
+		expect(JSON.stringify(host)).not.toContain(token);
+
+		const fetched = await getRemoteHost(host.id);
+		expect(fetched?.transport).toBe("reverse");
+		expect(fetched?.reverse?.tokenHash).toBe(hashReverseHostToken(token));
+	});
+
 	it("registers a host with generated id and defaults", async () => {
 		const host = await registerRemoteHost({
 			label: "Van One",
 			ssh: { hostname: "10.0.0.5", username: "agent" },
 		});
 		expect(host.id).toBe("van-one");
-		expect(host.ssh.port).toBe(22);
+		expect(host.ssh?.port).toBe(22);
 		expect(host.runtimePort).toBe(3484);
 		expect(host.createdAt).toBeGreaterThan(0);
 
@@ -81,10 +97,10 @@ describe("host-registry", () => {
 			},
 			runtimePort: 4000,
 		});
-		expect(host.ssh.port).toBe(2222);
-		expect(host.ssh.privateKeyPath).toBe("/home/agent/.ssh/id_ed25519");
-		expect(host.ssh.useAgent).toBe(true);
-		expect(host.ssh.passphraseEnv).toBe("VAN_KEY_PASSPHRASE");
+		expect(host.ssh?.port).toBe(2222);
+		expect(host.ssh?.privateKeyPath).toBe("/home/agent/.ssh/id_ed25519");
+		expect(host.ssh?.useAgent).toBe(true);
+		expect(host.ssh?.passphraseEnv).toBe("VAN_KEY_PASSPHRASE");
 		expect(host.runtimePort).toBe(4000);
 		// The serialized record must not contain a literal passphrase field.
 		expect(JSON.stringify(host)).not.toContain('passphrase":');
@@ -101,8 +117,8 @@ describe("host-registry", () => {
 		expect(updated?.id).toBe(host.id);
 		expect(updated?.createdAt).toBe(host.createdAt);
 		expect(updated?.label).toBe("Renamed Van");
-		expect(updated?.ssh.hostname).toBe("b.local");
-		expect(updated?.ssh.username).toBe("u");
+		expect(updated?.ssh?.hostname).toBe("b.local");
+		expect(updated?.ssh?.username).toBe("u");
 		expect(updated?.runtimePort).toBe(5000);
 	});
 

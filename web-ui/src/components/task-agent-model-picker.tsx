@@ -10,6 +10,7 @@ import {
 	buildClineSelectedModelButtonText,
 	getClineReasoningEnabledModelIds,
 } from "@/components/detail-panels/cline-model-picker-options";
+import { RuntimeTargetSelector } from "@/components/runtime-target-selector";
 import { SearchSelectDropdown } from "@/components/search-select-dropdown";
 import { SkillSelectorList } from "@/components/skills/skill-selector-list";
 import { cn } from "@/components/ui/cn";
@@ -314,6 +315,8 @@ export function TaskAgentModelPicker({
 	onClineSettingsChange,
 	skillNames = [],
 	onSkillNamesChange,
+	runtimeTarget,
+	onRuntimeTargetChange,
 	workspaceSkills = [],
 	workspaceId = null,
 	agentOptions,
@@ -341,6 +344,9 @@ export function TaskAgentModelPicker({
 	onClineSettingsChange?: (value: RuntimeTaskClineSettings | undefined) => void;
 	skillNames?: string[];
 	onSkillNamesChange?: (value: string[]) => void;
+	/** Where the task executes: "local" (default/undefined), "ssh:<hostId>", or "docker:<profileId>". */
+	runtimeTarget?: string;
+	onRuntimeTargetChange?: (value: string | undefined) => void;
 	workspaceSkills?: RuntimeWorkspaceSkill[];
 	/** Workspace/project id — used to order skills by how often they've been used here. */
 	workspaceId?: string | null;
@@ -721,6 +727,13 @@ export function TaskAgentModelPicker({
 								onSkillNamesChange={onSkillNamesChange ?? (() => {})}
 							/>
 						</div>
+					) : null}
+					{onRuntimeTargetChange ? (
+						<RuntimeTargetSelector
+							value={runtimeTarget}
+							onChange={onRuntimeTargetChange}
+							isClineAgent={agentId === "cline"}
+						/>
 					) : null}
 				</Collapsible.Content>
 			</Collapsible.Root>

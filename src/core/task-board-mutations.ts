@@ -7,7 +7,9 @@ import type {
 	RuntimeTaskAutoReviewMode,
 	RuntimeTaskClineSettings,
 	RuntimeTaskImage,
+	RuntimeTaskTarget,
 } from "./api-contract";
+import { RUNTIME_TASK_TARGET_LOCAL } from "./api-contract";
 import { createUniqueTaskId } from "./task-id";
 import { resolveTaskTitle } from "./task-title";
 
@@ -23,6 +25,7 @@ export interface RuntimeCreateTaskInput {
 	cliModel?: string;
 	clineSettings?: RuntimeTaskClineSettings;
 	skillNames?: string[];
+	runtimeTarget?: RuntimeTaskTarget;
 	baseRef: string;
 }
 
@@ -37,6 +40,7 @@ export interface RuntimeUpdateTaskInput {
 	cliModel?: string | null;
 	clineSettings?: RuntimeTaskClineSettings | null;
 	skillNames?: string[] | null;
+	runtimeTarget?: RuntimeTaskTarget | null;
 	baseRef: string;
 }
 
@@ -71,6 +75,18 @@ function cloneTaskSkillNames(skillNames?: string[] | null): string[] | undefined
 		return undefined;
 	}
 	return [...skillNames];
+}
+
+// Runtime target defaults to local; persist only non-default targets to keep board.json clean.
+function normalizeTaskRuntimeTarget(value?: RuntimeTaskTarget | null): RuntimeTaskTarget | undefined {
+	if (!value) {
+		return undefined;
+	}
+	const trimmed = value.trim();
+	if (!trimmed || trimmed === RUNTIME_TASK_TARGET_LOCAL) {
+		return undefined;
+	}
+	return trimmed;
 }
 
 export interface RuntimeCreateTaskResult {
@@ -323,6 +339,9 @@ export function addTaskToColumn(
 		...(input.cliModel?.trim() ? { cliModel: input.cliModel.trim() } : {}),
 		...(input.clineSettings !== undefined ? { clineSettings: cloneTaskClineSettings(input.clineSettings) } : {}),
 		...(cloneTaskSkillNames(input.skillNames) ? { skillNames: cloneTaskSkillNames(input.skillNames) } : {}),
+		...(normalizeTaskRuntimeTarget(input.runtimeTarget)
+			? { runtimeTarget: normalizeTaskRuntimeTarget(input.runtimeTarget) }
+			: {}),
 		baseRef,
 		createdAt: now,
 		updatedAt: now,
@@ -656,6 +675,12 @@ export function updateTask(
 						: input.skillNames === null
 							? undefined
 							: cloneTaskSkillNames(input.skillNames),
+				runtimeTarget:
+					input.runtimeTarget === undefined
+						? normalizeTaskRuntimeTarget(card.runtimeTarget)
+						: input.runtimeTarget === null
+							? undefined
+							: normalizeTaskRuntimeTarget(input.runtimeTarget),
 				baseRef,
 				updatedAt: now,
 			};

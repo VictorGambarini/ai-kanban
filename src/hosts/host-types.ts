@@ -1,3 +1,5 @@
+import { createHash, randomBytes } from "node:crypto";
+
 import { z } from "zod";
 
 import { DEFAULT_KANBAN_RUNTIME_PORT } from "../core/runtime-endpoint";
@@ -28,10 +30,26 @@ export interface RemoteHostSshConfig {
 export interface RemoteHost {
 	id: string;
 	label: string;
-	ssh: RemoteHostSshConfig;
-	/** Port the remote `ai-kanban` runtime listens on (loopback) and that we forward to. */
+	/**
+	 * How the hub reaches this host:
+	 * - `"ssh"` (default) — the hub dials *out* over SSH and bootstraps the runtime.
+	 * - `"reverse"` — the host dials *in* to the hub's rendezvous server; the hub never
+	 *   dials out. For laptops behind NAT that can reach the hub but not vice-versa.
+	 */
+	transport: "ssh" | "reverse";
+	/** SSH connection details. Present for `"ssh"` transport; absent for `"reverse"`. */
+	ssh?: RemoteHostSshConfig;
+	/** Port the remote runtime listens on (loopback) and that we forward to. */
 	runtimePort: number;
+	/** Reverse (dial-in) auth material. Present only for `"reverse"` transport. */
+	reverse?: RemoteHostReverseConfig;
 	createdAt: number;
+}
+
+/** Auth material for a reverse (dial-in) host. The token plaintext is never stored. */
+export interface RemoteHostReverseConfig {
+	/** SHA-256 hash of the connector's pairing token. */
+	tokenHash: string;
 }
 
 const DEFAULT_SSH_PORT = 22;
@@ -45,11 +63,18 @@ export const remoteHostSshConfigSchema = z.object({
 	passphraseEnv: z.string().min(1).optional(),
 });
 
+export const remoteHostReverseConfigSchema = z.object({
+	tokenHash: z.string().min(1),
+});
+
 export const remoteHostSchema = z.object({
 	id: z.string().min(1, "Host ID cannot be empty."),
 	label: z.string().min(1, "Host label cannot be empty."),
-	ssh: remoteHostSshConfigSchema,
+	// Older records predate the discriminator and were all SSH hosts.
+	transport: z.enum(["ssh", "reverse"]).default("ssh"),
+	ssh: remoteHostSshConfigSchema.optional(),
 	runtimePort: z.number().int().min(1).max(65535).default(DEFAULT_KANBAN_RUNTIME_PORT),
+	reverse: remoteHostReverseConfigSchema.optional(),
 	createdAt: z.number(),
 });
 
@@ -89,6 +114,37 @@ export interface RegisterRemoteHostInput {
 		passphraseEnv?: string;
 	};
 	runtimePort?: number;
+}
+
+/** Fields a caller supplies when registering a reverse (dial-in) host. */
+export interface RegisterReverseHostInput {
+	label: string;
+}
+
+export const registerReverseHostInputSchema = z.object({
+	label: z.string().min(1, "Host label cannot be empty."),
+});
+
+/** A host guaranteed to carry SSH config — the hub-dials-out transport. */
+export type SshRemoteHost = RemoteHost & { ssh: RemoteHostSshConfig };
+
+export function isReverseHost(host: RemoteHost): boolean {
+	return host.transport === "reverse";
+}
+
+/** True for hub-dials-out hosts (and narrows the type so `.ssh` is non-optional). */
+export function isSshRemoteHost(host: RemoteHost): host is SshRemoteHost {
+	return host.transport !== "reverse" && host.ssh !== undefined;
+}
+
+/** Generate a pairing token and its stored hash for a reverse host. */
+export function createReverseHostToken(): { token: string; tokenHash: string } {
+	const token = randomBytes(24).toString("base64url");
+	return { token, tokenHash: hashReverseHostToken(token) };
+}
+
+export function hashReverseHostToken(token: string): string {
+	return createHash("sha256").update(token).digest("hex");
 }
 
 /** A patch for an existing host. `id` and `createdAt` are immutable. */

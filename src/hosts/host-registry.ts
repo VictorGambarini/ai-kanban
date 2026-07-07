@@ -7,8 +7,10 @@ import { DEFAULT_KANBAN_RUNTIME_PORT } from "../core/runtime-endpoint";
 import { type LockRequest, lockedFileSystem } from "../fs/locked-file-system";
 import { getRuntimeHomePath } from "../state/workspace-state";
 import {
+	createReverseHostToken,
 	HOSTS_FILE_VERSION,
 	type RegisterRemoteHostInput,
+	type RegisterReverseHostInput,
 	type RemoteHost,
 	type RemoteHostsFile,
 	remoteHostsFileSchema,
@@ -99,6 +101,7 @@ function buildHost(file: RemoteHostsFile, input: RegisterRemoteHostInput): Remot
 	return {
 		id: createHostId(file, input.label),
 		label: input.label,
+		transport: "ssh",
 		ssh: {
 			hostname: input.ssh.hostname,
 			port: input.ssh.port ?? DEFAULT_SSH_PORT,
@@ -132,6 +135,32 @@ export async function registerRemoteHost(input: RegisterRemoteHostInput): Promis
 	});
 }
 
+/**
+ * Register a reverse (dial-in) host. Generates a one-time pairing token, stores only
+ * its hash, and returns the token plaintext once so the UI can show the connector
+ * command. The connector authenticates to the rendezvous server with it.
+ */
+export async function registerReverseHost(
+	input: RegisterReverseHostInput,
+): Promise<{ host: RemoteHost; token: string }> {
+	return await lockedFileSystem.withLock(getHostsFileLockRequest(), async () => {
+		const file = await readHostsFile();
+		const { token, tokenHash } = createReverseHostToken();
+		const host: RemoteHost = {
+			id: createHostId(file, input.label),
+			label: input.label,
+			transport: "reverse",
+			// A placeholder until the connector reports its actual runtime port at attach time.
+			runtimePort: DEFAULT_KANBAN_RUNTIME_PORT,
+			reverse: { tokenHash },
+			createdAt: Date.now(),
+		};
+		file.hosts[host.id] = host;
+		await writeHostsFile(file);
+		return { host, token };
+	});
+}
+
 export async function updateRemoteHost(hostId: string, patch: UpdateRemoteHostInput): Promise<RemoteHost | null> {
 	return await lockedFileSystem.withLock(getHostsFileLockRequest(), async () => {
 		const file = await readHostsFile();
@@ -143,10 +172,8 @@ export async function updateRemoteHost(hostId: string, patch: UpdateRemoteHostIn
 			...existing,
 			label: patch.label ?? existing.label,
 			runtimePort: patch.runtimePort ?? existing.runtimePort,
-			ssh: {
-				...existing.ssh,
-				...patch.ssh,
-			},
+			// Only merge SSH config for SSH-transport hosts; reverse hosts have no `ssh`.
+			...(existing.ssh ? { ssh: { ...existing.ssh, ...patch.ssh } } : {}),
 		};
 		file.hosts[hostId] = next;
 		await writeHostsFile(file);

@@ -1,5 +1,5 @@
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
-import { AlertTriangle, Check, ChevronsUpDown, Monitor, Pencil, Plus, RotateCw, Server, Trash2 } from "lucide-react";
+import { AlertTriangle, ChevronsUpDown, Monitor, Pencil, Plus, RotateCw, Server, Trash2 } from "lucide-react";
 import { type FormEvent, useState } from "react";
 
 import { notifyError } from "@/components/app-toaster";
@@ -7,8 +7,13 @@ import { Button } from "@/components/ui/button";
 import { cn } from "@/components/ui/cn";
 import { Dialog, DialogBody, DialogFooter, DialogHeader } from "@/components/ui/dialog";
 import { Spinner } from "@/components/ui/spinner";
-import { getActiveHostId, LOCAL_HOST_ID, setActiveHostId } from "@/runtime/active-host";
-import { type RegisterHostInput, type RemoteHostSummary, type UpdateHostInput, useHosts } from "@/runtime/use-hosts";
+import {
+	type AddReverseHostResult,
+	type RegisterHostInput,
+	type RemoteHostSummary,
+	type UpdateHostInput,
+	useHosts,
+} from "@/runtime/use-hosts";
 
 type ConnectionState = "disconnected" | "connecting" | "connected" | "error";
 
@@ -57,21 +62,20 @@ function StatusDot({
 }
 
 /**
- * Sidebar control for picking which machine ("host") the board is scoped to:
- * the local hub or a remote VM reached over SSH. Selecting a host re-scopes the
- * whole app (via {@link setActiveHostId}, which reloads).
+ * Sidebar control for managing the SSH hosts a task can be dispatched to. The
+ * board itself is hub-owned; per-task execution routes to a host via the card's
+ * runtime target (see {@link RuntimeTargetSelector}). This surface only manages
+ * host registration, connection, and status.
  */
 export function HostSwitcher(): React.ReactElement | null {
-	const { hosts, error, addHost, updateHost, removeHost, connectHost, restartHost } = useHosts();
+	const { hosts, error, addHost, addReverseHost, updateHost, removeHost, connectHost, restartHost } = useHosts();
 	const [isAddOpen, setIsAddOpen] = useState(false);
+	const [isAddReverseOpen, setIsAddReverseOpen] = useState(false);
 	const [editing, setEditing] = useState<RemoteHostSummary | null>(null);
-	const activeHostId = getActiveHostId();
 
-	// Hide entirely until there's something to manage, so single-machine users
-	// never see multi-host UI. The "Add host" affordance lives in the menu, which
-	// is reachable as soon as one host exists — but we also surface it when the
-	// active host is remote so it can always be switched back.
-	const hasRemoteContext = hosts.length > 0 || activeHostId !== LOCAL_HOST_ID;
+	// Hide entirely until there's a host to manage, so single-machine users never
+	// see multi-host UI. The "Add host" affordance lives in the menu once open.
+	const hasRemoteContext = hosts.length > 0;
 	if (!hasRemoteContext && !error) {
 		return (
 			<div className="px-3 pb-1">
@@ -83,14 +87,27 @@ export function HostSwitcher(): React.ReactElement | null {
 					<Plus size={12} className="shrink-0" />
 					Add remote host
 				</button>
+				<button
+					type="button"
+					onClick={() => setIsAddReverseOpen(true)}
+					className="mt-1 flex w-full items-center gap-1.5 rounded-md border border-dashed border-border px-2 py-1 text-xs text-text-tertiary hover:text-text-secondary hover:border-border-bright"
+				>
+					<Plus size={12} className="shrink-0" />
+					Add dial-in host
+				</button>
 				<AddHostDialog open={isAddOpen} onOpenChange={setIsAddOpen} addHost={addHost} />
+				<AddReverseHostDialog
+					open={isAddReverseOpen}
+					onOpenChange={setIsAddReverseOpen}
+					addReverseHost={addReverseHost}
+				/>
 			</div>
 		);
 	}
 
-	const activeSummary = hosts.find((entry) => entry.host.id === activeHostId);
-	const activeLabel = activeHostId === LOCAL_HOST_ID ? "Local" : (activeSummary?.host.label ?? activeHostId);
-	const activeState = activeHostId === LOCAL_HOST_ID ? "connected" : (activeSummary?.status?.state ?? null);
+	const connectedCount = hosts.filter((entry) => entry.status?.state === "connected").length;
+	const aggregateState: ConnectionState =
+		connectedCount > 0 ? "connected" : hosts.length > 0 ? "disconnected" : "connected";
 
 	return (
 		<div className="px-3 pb-1">
@@ -100,12 +117,16 @@ export function HostSwitcher(): React.ReactElement | null {
 						type="button"
 						className="flex w-full items-center gap-2 rounded-md border border-border bg-surface-2 px-2 py-1.5 text-left hover:border-border-bright"
 					>
-						{activeHostId === LOCAL_HOST_ID ? (
-							<Monitor size={14} className="shrink-0 text-text-secondary" />
-						) : (
-							<StatusDot state={activeState as ConnectionState} />
-						)}
-						<span className="min-w-0 flex-1 truncate text-xs font-medium text-text-primary">{activeLabel}</span>
+						<Server size={14} className="shrink-0 text-text-secondary" />
+						<span className="min-w-0 flex-1 truncate text-xs font-medium text-text-primary">
+							Hosts
+							{hosts.length > 0 ? (
+								<span className="ml-1 text-text-tertiary">
+									({connectedCount}/{hosts.length})
+								</span>
+							) : null}
+						</span>
+						<StatusDot state={aggregateState} />
 						<ChevronsUpDown size={12} className="shrink-0 text-text-tertiary" />
 					</button>
 				</DropdownMenu.Trigger>
@@ -116,19 +137,15 @@ export function HostSwitcher(): React.ReactElement | null {
 						sideOffset={4}
 						className="z-50 min-w-[240px] rounded-md border border-border-bright bg-surface-1 p-1 shadow-lg"
 					>
-						<HostMenuItem
-							label="Local (this machine)"
-							icon={<Monitor size={14} className="shrink-0 text-text-secondary" />}
-							isActive={activeHostId === LOCAL_HOST_ID}
-							onSelect={() => setActiveHostId(LOCAL_HOST_ID)}
-						/>
+						<DropdownMenu.Label className="flex items-center gap-2 px-2 py-1.5 text-[13px] text-text-secondary">
+							<Monitor size={14} className="shrink-0 text-text-secondary" />
+							<span className="min-w-0 flex-1 truncate">Local (this machine)</span>
+						</DropdownMenu.Label>
 						{hosts.length > 0 ? <DropdownMenu.Separator className="my-1 h-px bg-border" /> : null}
 						{hosts.map((entry) => (
 							<RemoteHostMenuItem
 								key={entry.host.id}
 								summary={entry}
-								isActive={entry.host.id === activeHostId}
-								onSelect={() => setActiveHostId(entry.host.id)}
 								onEdit={() => setEditing(entry)}
 								onConnect={() => {
 									void connectHost(entry.host.id).catch((caught) =>
@@ -158,10 +175,25 @@ export function HostSwitcher(): React.ReactElement | null {
 							<Plus size={14} className="shrink-0" />
 							Add remote host…
 						</DropdownMenu.Item>
+						<DropdownMenu.Item
+							className="flex cursor-pointer items-center gap-2 rounded-sm px-2 py-1.5 text-[13px] text-text-secondary outline-none data-[highlighted]:bg-surface-3"
+							onSelect={(event) => {
+								event.preventDefault();
+								setIsAddReverseOpen(true);
+							}}
+						>
+							<Plus size={14} className="shrink-0" />
+							Add dial-in host…
+						</DropdownMenu.Item>
 					</DropdownMenu.Content>
 				</DropdownMenu.Portal>
 			</DropdownMenu.Root>
 			<AddHostDialog open={isAddOpen} onOpenChange={setIsAddOpen} addHost={addHost} />
+			<AddReverseHostDialog
+				open={isAddReverseOpen}
+				onOpenChange={setIsAddReverseOpen}
+				addReverseHost={addReverseHost}
+			/>
 			<EditHostDialog
 				summary={editing}
 				onOpenChange={(open) => {
@@ -175,41 +207,14 @@ export function HostSwitcher(): React.ReactElement | null {
 	);
 }
 
-function HostMenuItem({
-	label,
-	icon,
-	isActive,
-	onSelect,
-}: {
-	label: string;
-	icon: React.ReactNode;
-	isActive: boolean;
-	onSelect: () => void;
-}): React.ReactElement {
-	return (
-		<DropdownMenu.Item
-			className="flex cursor-pointer items-center gap-2 rounded-sm px-2 py-1.5 text-[13px] text-text-primary outline-none data-[highlighted]:bg-surface-3"
-			onSelect={onSelect}
-		>
-			{icon}
-			<span className="min-w-0 flex-1 truncate">{label}</span>
-			{isActive ? <Check size={14} className="shrink-0 text-accent" /> : null}
-		</DropdownMenu.Item>
-	);
-}
-
 function RemoteHostMenuItem({
 	summary,
-	isActive,
-	onSelect,
 	onEdit,
 	onConnect,
 	onRestart,
 	onRemove,
 }: {
 	summary: RemoteHostSummary;
-	isActive: boolean;
-	onSelect: () => void;
 	onEdit: () => void;
 	onConnect: () => void;
 	onRestart: () => void;
@@ -228,7 +233,8 @@ function RemoteHostMenuItem({
 			<div className="flex items-center gap-1">
 				<button
 					type="button"
-					onClick={onSelect}
+					onClick={onEdit}
+					title="Edit host"
 					className="flex min-w-0 flex-1 items-center gap-2 rounded-sm px-1 py-1.5 text-left text-[13px] text-text-primary"
 				>
 					<StatusDot state={state} title={problem ?? undefined} />
@@ -247,7 +253,6 @@ function RemoteHostMenuItem({
 						</span>
 					) : null}
 					<span className="min-w-0 flex-1" />
-					{isActive ? <Check size={14} className="shrink-0 text-accent" /> : null}
 				</button>
 				{state === "error" || state === "disconnected" ? (
 					<button
@@ -320,13 +325,14 @@ const emptyFormValues: HostFormValues = {
 
 function summaryToFormValues(summary: RemoteHostSummary): HostFormValues {
 	const { host } = summary;
+	const ssh = host.ssh;
 	return {
 		label: host.label,
-		hostname: host.ssh.hostname,
-		username: host.ssh.username,
-		sshPort: host.ssh.port ? String(host.ssh.port) : "",
-		identity: host.ssh.privateKeyPath ?? "",
-		useAgent: host.ssh.useAgent ?? false,
+		hostname: ssh?.hostname ?? "",
+		username: ssh?.username ?? "",
+		sshPort: ssh?.port ? String(ssh.port) : "",
+		identity: ssh?.privateKeyPath ?? "",
+		useAgent: ssh?.useAgent ?? false,
 		runtimePort: host.runtimePort ? String(host.runtimePort) : "",
 	};
 }
@@ -472,15 +478,136 @@ function AddHostDialog({
 			submitLabel="Add host"
 			initialValues={emptyFormValues}
 			onSubmit={async (values) => {
-				const added = await addHost({
+				await addHost({
 					label: values.label.trim() || values.hostname.trim(),
 					ssh: buildSshInput(values),
 					runtimePort: parsePort(values.runtimePort),
 				});
-				// Jump straight to the newly added host.
-				setActiveHostId(added.host.id);
 			}}
 		/>
+	);
+}
+
+function AddReverseHostDialog({
+	open,
+	onOpenChange,
+	addReverseHost,
+}: {
+	open: boolean;
+	onOpenChange: (open: boolean) => void;
+	addReverseHost: (label: string) => Promise<AddReverseHostResult>;
+}): React.ReactElement | null {
+	const [label, setLabel] = useState("");
+	const [result, setResult] = useState<AddReverseHostResult | null>(null);
+	const [submitting, setSubmitting] = useState(false);
+	const [formError, setFormError] = useState<string | null>(null);
+
+	if (!open) {
+		return null;
+	}
+
+	const reset = () => {
+		setLabel("");
+		setResult(null);
+		setFormError(null);
+		setSubmitting(false);
+	};
+
+	const connectCommand = result
+		? [
+				"ai-kanban connect",
+				`--hub ${window.location.hostname}:${result.rendezvousPort}`,
+				`--host-id ${result.host.id}`,
+				`--token ${result.token}`,
+				result.hostKeyFingerprint ? `--fingerprint ${result.hostKeyFingerprint}` : "",
+			]
+				.filter(Boolean)
+				.join(" ")
+		: "";
+
+	const handleSubmit = async (event: FormEvent) => {
+		event.preventDefault();
+		if (submitting) {
+			return;
+		}
+		setSubmitting(true);
+		setFormError(null);
+		try {
+			setResult(await addReverseHost(label.trim() || "Dial-in host"));
+		} catch (caught) {
+			setFormError(caught instanceof Error ? caught.message : String(caught));
+		} finally {
+			setSubmitting(false);
+		}
+	};
+
+	return (
+		<Dialog
+			open={open}
+			onOpenChange={(next) => {
+				if (!next) {
+					reset();
+				}
+				onOpenChange(next);
+			}}
+		>
+			<DialogHeader title="Add dial-in host" />
+			{result ? (
+				<>
+					<DialogBody>
+						<p className="mb-2 text-[13px] text-text-secondary">
+							Run this on the machine you want to attach (it must be able to reach this hub). The token is shown
+							once.
+						</p>
+						<pre className="overflow-x-auto rounded-md border border-border bg-surface-2 p-2 text-[12px] text-text-primary">
+							{connectCommand}
+						</pre>
+						<button
+							type="button"
+							className="mt-2 rounded-sm border border-border px-2 py-1 text-xs text-text-secondary hover:border-border-bright"
+							onClick={() => void navigator.clipboard?.writeText(connectCommand)}
+						>
+							Copy command
+						</button>
+					</DialogBody>
+					<DialogFooter>
+						<Button
+							variant="primary"
+							onClick={() => {
+								reset();
+								onOpenChange(false);
+							}}
+						>
+							Done
+						</Button>
+					</DialogFooter>
+				</>
+			) : (
+				<form onSubmit={handleSubmit}>
+					<DialogBody>
+						<label htmlFor="reverse-host-label" className="mb-1 block text-xs text-text-secondary">
+							Label
+						</label>
+						<input
+							id="reverse-host-label"
+							value={label}
+							onChange={(event) => setLabel(event.target.value)}
+							placeholder="My laptop"
+							className="w-full rounded-md border border-border bg-surface-2 px-2 py-1 text-[13px] text-text-primary"
+						/>
+						{formError ? <p className="mt-2 text-xs text-status-red">{formError}</p> : null}
+					</DialogBody>
+					<DialogFooter>
+						<Button variant="ghost" type="button" onClick={() => onOpenChange(false)}>
+							Cancel
+						</Button>
+						<Button variant="primary" type="submit" disabled={submitting}>
+							{submitting ? "Creating…" : "Create"}
+						</Button>
+					</DialogFooter>
+				</form>
+			)}
+		</Dialog>
 	);
 }
 

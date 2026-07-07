@@ -12,6 +12,7 @@ function createHost(overrides: Partial<RemoteHost> = {}): RemoteHost {
 	return {
 		id: "van-one",
 		label: "Van One",
+		transport: "ssh",
 		ssh: { hostname: "10.0.0.5", port: 22, username: "agent" },
 		runtimePort: 3484,
 		createdAt: Date.now(),
