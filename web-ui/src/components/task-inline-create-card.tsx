@@ -6,6 +6,7 @@ import { useHotkeys } from "react-hotkeys-hook";
 
 import { TaskEnvButton } from "@/components/agent-env/task-env-button";
 import { BranchSelectDropdown, type BranchSelectOption } from "@/components/branch-select-dropdown";
+import { TaskClaudePermissionModeButton } from "@/components/claude-permission/task-claude-permission-mode-button";
 import { TaskAgentModelPicker, useTaskAgentModelPicker } from "@/components/task-agent-model-picker";
 import { TaskPromptComposer } from "@/components/task-prompt-composer";
 import { Button } from "@/components/ui/button";
@@ -138,6 +139,7 @@ export function TaskInlineCreateCard({
 	const [isBranchPopoverOpen, setIsBranchPopoverOpen] = useState(false);
 	const [isModelPickerPopoverOpen, setIsModelPickerPopoverOpen] = useState(false);
 	const [isEnvPopoverOpen, setIsEnvPopoverOpen] = useState(false);
+	const [isClaudePermissionPopoverOpen, setIsClaudePermissionPopoverOpen] = useState(false);
 	const setCardRef = useCallback(
 		(node: HTMLDivElement | null) => {
 			containerRef.current = node;
@@ -197,7 +199,14 @@ export function TaskInlineCreateCard({
 	useDocumentEvent(
 		"pointerdown",
 		(event) => {
-			if (!enabled || mode !== "edit" || isBranchPopoverOpen || isModelPickerPopoverOpen || isEnvPopoverOpen) {
+			if (
+				!enabled ||
+				mode !== "edit" ||
+				isBranchPopoverOpen ||
+				isModelPickerPopoverOpen ||
+				isEnvPopoverOpen ||
+				isClaudePermissionPopoverOpen
+			) {
 				return;
 			}
 			const container = containerRef.current;
@@ -358,6 +367,17 @@ export function TaskInlineCreateCard({
 					<div className="flex items-center justify-between gap-2">
 						<span className="text-[12px] text-text-secondary">Environment variables</span>
 						<TaskEnvButton taskId={taskId} onPopoverOpenChange={setIsEnvPopoverOpen} />
+					</div>
+				) : null}
+				{mode === "edit" && taskId && (agentId ?? defaultAgentId) === "claude" ? (
+					// Per-task Claude Code permission mode for a not-yet-started card;
+					// applies on first launch. Only meaningful for the Claude Code agent.
+					<div className="flex items-center justify-between gap-2">
+						<span className="text-[12px] text-text-secondary">Permission mode</span>
+						<TaskClaudePermissionModeButton
+							taskId={taskId}
+							onPopoverOpenChange={setIsClaudePermissionPopoverOpen}
+						/>
 					</div>
 				) : null}
 			</div>

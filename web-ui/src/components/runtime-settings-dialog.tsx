@@ -6,6 +6,8 @@ import * as RadixPopover from "@radix-ui/react-popover";
 import * as RadixSelect from "@radix-ui/react-select";
 import * as RadixSwitch from "@radix-ui/react-switch";
 import { getRuntimeAgentCatalogEntry, getRuntimeLaunchSupportedAgentCatalog } from "@runtime-agent-catalog";
+import type { ClaudePermissionStrategy } from "@runtime-claude-permission-strategy";
+import { resolveEffectiveClaudePermissionStrategy } from "@runtime-claude-permission-strategy";
 import { areRuntimeProjectShortcutsEqual } from "@runtime-shortcuts";
 import {
 	Bell,
@@ -28,6 +30,7 @@ import {
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AgentEnvSettingsSection } from "@/components/agent-env/agent-env-settings-section";
+import { ClaudePermissionStrategySettingsSection } from "@/components/claude-permission/claude-permission-strategy-settings-section";
 import { AccountOrganizationSection } from "@/components/shared/account-organization-section";
 import { ClineSetupSection } from "@/components/shared/cline-setup-section";
 import {
@@ -43,6 +46,7 @@ import { Dialog, DialogFooter, DialogHeader } from "@/components/ui/dialog";
 import { NativeSelect } from "@/components/ui/native-select";
 import { WorkspaceSkillsPanel } from "@/components/workspace-skills-panel";
 import { TASK_GIT_BASE_REF_PROMPT_VARIABLE, type TaskGitAction } from "@/git-actions/build-task-git-action-prompt";
+import { useClaudePermissionStrategy } from "@/hooks/use-claude-permission-strategy";
 import { useClaudeStatuslineController } from "@/hooks/use-claude-statusline-controller";
 import { useRuntimeSettingsClineController } from "@/hooks/use-runtime-settings-cline-controller";
 import { useRuntimeSettingsClineMcpController } from "@/hooks/use-runtime-settings-cline-mcp-controller";
@@ -87,11 +91,22 @@ function quoteCommandPartForDisplay(part: string): string {
 	return JSON.stringify(part);
 }
 
-function buildDisplayedAgentCommand(agentId: RuntimeAgentId, binary: string, autonomousModeEnabled: boolean): string {
+function buildDisplayedAgentCommand(
+	agentId: RuntimeAgentId,
+	binary: string,
+	autonomousModeEnabled: boolean,
+	claudePermissionStrategy: ClaudePermissionStrategy,
+): string {
 	if (agentId === "cline") {
 		return "";
 	}
-	const args = autonomousModeEnabled ? (getRuntimeAgentCatalogEntry(agentId)?.autonomousArgs ?? []) : [];
+	const args = autonomousModeEnabled
+		? agentId === "claude"
+			? claudePermissionStrategy === "auto"
+				? ["--permission-mode", "auto"]
+				: ["--dangerously-skip-permissions"]
+			: (getRuntimeAgentCatalogEntry(agentId)?.autonomousArgs ?? [])
+		: [];
 	return [binary, ...args.map(quoteCommandPartForDisplay)].join(" ");
 }
 
@@ -395,6 +410,14 @@ export function RuntimeSettingsDialog({
 	const { resetLayoutCustomizations } = useLayoutCustomizations();
 	const [selectedAgentId, setSelectedAgentId] = useState<RuntimeAgentId>("claude");
 	const [agentAutonomousModeEnabled, setAgentAutonomousModeEnabled] = useState(true);
+	// Loaded unconditionally (not gated on selectedAgentId === "claude") purely for the
+	// command preview below; ClaudePermissionStrategySettingsSection loads its own copy
+	// to edit, since it's only rendered while Claude is selected.
+	const { config: claudePermissionStrategyConfig } = useClaudePermissionStrategy(open);
+	const resolvedClaudePermissionStrategy = useMemo(
+		() => resolveEffectiveClaudePermissionStrategy(claudePermissionStrategyConfig, { projectId: workspaceId }),
+		[claudePermissionStrategyConfig, workspaceId],
+	);
 	const [readyForReviewNotificationsEnabled, setReadyForReviewNotificationsEnabled] = useState(true);
 	const [initialThemeId, setInitialThemeId] = useState<ThemeId>(readStoredThemeId);
 	const [draftThemeId, setDraftThemeId] = useState<ThemeId>(readStoredThemeId);
@@ -460,9 +483,14 @@ export function RuntimeSettingsDialog({
 		});
 		return orderedAgents.map((agent) => ({
 			...agent,
-			command: buildDisplayedAgentCommand(agent.id, agent.binary, agentAutonomousModeEnabled),
+			command: buildDisplayedAgentCommand(
+				agent.id,
+				agent.binary,
+				agentAutonomousModeEnabled,
+				resolvedClaudePermissionStrategy,
+			),
 		}));
-	}, [agentAutonomousModeEnabled, config?.agents]);
+	}, [agentAutonomousModeEnabled, config?.agents, resolvedClaudePermissionStrategy]);
 	const displayedAgents = useMemo(() => supportedAgents, [supportedAgents]);
 	const navItems = useMemo(
 		() =>
@@ -884,6 +912,10 @@ export function RuntimeSettingsDialog({
 							Allows agents to use tools without stopping for permission. Use at your own risk.
 						</p>
 					</div>
+
+					{selectedAgentId === "claude" ? (
+						<ClaudePermissionStrategySettingsSection open={open} workspaceId={workspaceId} />
+					) : null}
 
 					{/* ---- Cline ---- */}
 					{selectedAgentId === "cline" ? (

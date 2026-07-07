@@ -321,6 +321,8 @@ export default function App(): ReactElement {
 		setNewTaskSkillNames,
 		newTaskEnv,
 		setNewTaskEnv,
+		newTaskClaudePermissionStrategy,
+		setNewTaskClaudePermissionStrategy,
 		editingTaskId,
 		editTaskPrompt,
 		setEditTaskPrompt,
@@ -1204,6 +1206,8 @@ export default function App(): ReactElement {
 					onSkillNamesChange={setNewTaskSkillNames}
 					env={newTaskEnv}
 					onEnvChange={setNewTaskEnv}
+					claudePermissionStrategy={newTaskClaudePermissionStrategy}
+					onClaudePermissionStrategyChange={setNewTaskClaudePermissionStrategy}
 					defaultAgentId={runtimeProjectConfig?.selectedAgentId ?? null}
 					defaultProviderId={defaultTaskClineProviderId}
 					defaultModelId={runtimeProjectConfig?.clineProviderSettings?.modelId ?? null}

@@ -15,7 +15,9 @@ import type { ClineTaskSessionService } from "../cline-sdk/cline-task-session-se
 import type { RuntimeConfigState } from "../config/runtime-config";
 import {
 	loadAgentEnvConfig,
+	loadClaudePermissionStrategyConfig,
 	saveAgentEnvConfig,
+	saveClaudePermissionStrategyConfig,
 	updateGlobalRuntimeConfig,
 	updateRuntimeConfig,
 } from "../config/runtime-config";
@@ -27,6 +29,7 @@ import type {
 } from "../core/api-contract";
 import {
 	parseAgentEnvSaveRequest,
+	parseClaudePermissionStrategySaveRequest,
 	parseClineAccountSwitchRequest,
 	parseClineAddProviderRequest,
 	parseClineDeviceAuthCompleteRequest,
@@ -50,6 +53,7 @@ import {
 	parseTaskSessionStopRequest,
 	parseTaskSkillsSyncRequest,
 } from "../core/api-validation";
+import { resolveEffectiveClaudePermissionStrategy } from "../core/claude-permission-strategy";
 import { isHomeAgentSessionId } from "../core/home-agent-session";
 import { resolveTaskTitle } from "../core/task-title.js";
 import { openInBrowser } from "../server/browser";
@@ -163,6 +167,13 @@ export function createRuntimeApi(deps: CreateRuntimeApiDependencies): RuntimeTrp
 		saveAgentEnv: async (_workspaceScope, input) => {
 			const body = parseAgentEnvSaveRequest(input);
 			return await saveAgentEnvConfig(body);
+		},
+		getClaudePermissionStrategy: async () => {
+			return await loadClaudePermissionStrategyConfig();
+		},
+		saveClaudePermissionStrategy: async (_workspaceScope, input) => {
+			const body = parseClaudePermissionStrategySaveRequest(input);
+			return await saveClaudePermissionStrategyConfig(body);
 		},
 		saveClineProviderSettings: async (_workspaceScope, input) => {
 			const body = parseClineProviderSettingsSaveRequest(input);
@@ -358,6 +369,8 @@ export function createRuntimeApi(deps: CreateRuntimeApiDependencies): RuntimeTrp
 					// Re-normalized here so the runtime never trusts arbitrary keys.
 					env: body.env ? normalizeAgentEnvMap(body.env) : undefined,
 					workspaceId: workspaceScope.workspaceId,
+					// Claude Code only; other adapters ignore this field.
+					claudePermissionStrategy: body.claudePermissionStrategy,
 				});
 
 				let nextSummary = summary;
@@ -436,7 +449,14 @@ export function createRuntimeApi(deps: CreateRuntimeApiDependencies): RuntimeTrp
 					projectId: workspaceScope.workspaceId,
 					taskId: body.taskId,
 				});
-				const summary = await terminalManager.restartTaskSessionWithEnv(body.taskId, env);
+				// Same re-resolution for the Claude Code permission strategy; other
+				// agents simply ignore this value.
+				const claudePermissionStrategyConfig = await loadClaudePermissionStrategyConfig();
+				const claudePermissionStrategy = resolveEffectiveClaudePermissionStrategy(claudePermissionStrategyConfig, {
+					projectId: workspaceScope.workspaceId,
+					taskId: body.taskId,
+				});
+				const summary = await terminalManager.restartTaskSessionWithEnv(body.taskId, env, claudePermissionStrategy);
 				return {
 					ok: Boolean(summary),
 					summary: summary ?? null,

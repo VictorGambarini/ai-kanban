@@ -2,6 +2,7 @@ import { z } from "zod";
 
 import {
 	type RuntimeAgentEnvSaveRequest,
+	type RuntimeClaudePermissionStrategySaveRequest,
 	type RuntimeClineAccountSwitchRequest,
 	type RuntimeClineAddProviderRequest,
 	type RuntimeClineDeviceAuthCompleteRequest,
@@ -37,6 +38,7 @@ import {
 	type RuntimeWorktreeDeleteRequest,
 	type RuntimeWorktreeEnsureRequest,
 	runtimeAgentEnvSaveRequestSchema,
+	runtimeClaudePermissionStrategySaveRequestSchema,
 	runtimeClineAccountSwitchRequestSchema,
 	runtimeClineAddProviderRequestSchema,
 	runtimeClineDeviceAuthCompleteRequestSchema,
@@ -215,6 +217,10 @@ export function parseRuntimeConfigSaveRequest(value: unknown): RuntimeConfigSave
 
 export function parseAgentEnvSaveRequest(value: unknown): RuntimeAgentEnvSaveRequest {
 	return parseWithSchema(runtimeAgentEnvSaveRequestSchema, value);
+}
+
+export function parseClaudePermissionStrategySaveRequest(value: unknown): RuntimeClaudePermissionStrategySaveRequest {
+	return parseWithSchema(runtimeClaudePermissionStrategySaveRequestSchema, value);
 }
 
 export function parseCommandRunRequest(value: unknown): RuntimeCommandRunRequest {

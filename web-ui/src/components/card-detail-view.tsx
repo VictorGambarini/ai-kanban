@@ -4,6 +4,7 @@ import type { MouseEvent as ReactMouseEvent, ReactNode } from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useHotkeys } from "react-hotkeys-hook";
 import { TaskEnvButton } from "@/components/agent-env/task-env-button";
+import { TaskClaudePermissionModeButton } from "@/components/claude-permission/task-claude-permission-mode-button";
 import { AgentStatusIndicator } from "@/components/detail-panels/agent-status-indicator";
 import { AgentTerminalPanel } from "@/components/detail-panels/agent-terminal-panel";
 import { ClineAgentChatPanel, type ClineAgentChatPanelHandle } from "@/components/detail-panels/cline-agent-chat-panel";
@@ -741,11 +742,15 @@ export function CardDetailView({
 	const showTaskEnvControl = !showClineAgentChatPanel && isStartedColumn;
 	// A started CLI task already spawned its agent, so applying new env needs a restart.
 	const envRequiresRestart = isStartedColumn;
+	// Per-task Claude Code permission mode on a running/review card, mirroring the env
+	// control above. Only meaningful for the Claude Code agent.
+	const showClaudePermissionControl = isStartedColumn && effectiveTaskAgentId === "claude";
 	// The terminal agent (non-Cline) is the only one whose transport can silently
 	// break, and the only one we can re-spawn from the UI — so the connection status
 	// and Restart control belong to it specifically.
 	const showTerminalAgentControls = isStartedColumn && !showClineAgentChatPanel;
-	const showTaskControlBar = showTaskEnvControl || showTaskSkillsControl || showTerminalAgentControls;
+	const showTaskControlBar =
+		showTaskEnvControl || showClaudePermissionControl || showTaskSkillsControl || showTerminalAgentControls;
 	const agentArea = (
 		<div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
 			{showTaskControlBar ? (
@@ -765,6 +770,17 @@ export function CardDetailView({
 						) : null}
 						{showTaskEnvControl ? (
 							<TaskEnvButton
+								taskId={selection.card.id}
+								requiresRestartToApply={envRequiresRestart}
+								onRequestRestart={
+									envRequiresRestart && onRestartTaskEnv
+										? () => onRestartTaskEnv(selection.card.id)
+										: undefined
+								}
+							/>
+						) : null}
+						{showClaudePermissionControl ? (
+							<TaskClaudePermissionModeButton
 								taskId={selection.card.id}
 								requiresRestartToApply={envRequiresRestart}
 								onRequestRestart={

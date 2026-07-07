@@ -7,6 +7,11 @@ import { dirname, join, resolve } from "node:path";
 import { getRuntimeAgentCatalogEntry, isRuntimeAgentLaunchSupported } from "../core/agent-catalog";
 import { type AgentEnvConfig, isAgentEnvConfigEmpty, normalizeAgentEnvConfig } from "../core/agent-env";
 import type { RuntimeAgentId, RuntimeProjectShortcut } from "../core/api-contract";
+import {
+	type ClaudePermissionStrategyConfig,
+	isClaudePermissionStrategyConfigEmpty,
+	normalizeClaudePermissionStrategyConfig,
+} from "../core/claude-permission-strategy";
 import { type LockRequest, lockedFileSystem } from "../fs/locked-file-system";
 import { detectInstalledCommands } from "../terminal/agent-registry";
 import { areRuntimeProjectShortcutsEqual } from "./shortcut-utils";
@@ -31,6 +36,13 @@ interface RuntimeGlobalConfigFileShape {
 	 * contain secrets, so the global config file is chmod 600 on write.
 	 */
 	agentEnv?: AgentEnvConfig;
+	/**
+	 * Hub-central Claude Code permission strategy (bypass vs. auto mode) across
+	 * global/project/task scopes. Stored only in the GLOBAL config, mirroring
+	 * `agentEnv` — project/task scoping means "keyed by id in this one file,"
+	 * not a separate per-project config file.
+	 */
+	claudePermissionStrategy?: ClaudePermissionStrategyConfig;
 }
 
 interface RuntimeProjectConfigFileShape {
@@ -443,6 +455,12 @@ async function writeRuntimeGlobalConfigFile(
 		payload.agentEnv = existingAgentEnv;
 	}
 
+	// Same preservation as agentEnv above, for the same reason.
+	const existingClaudePermissionStrategy = normalizeClaudePermissionStrategyConfig(existing?.claudePermissionStrategy);
+	if (!isClaudePermissionStrategyConfigEmpty(existingClaudePermissionStrategy)) {
+		payload.claudePermissionStrategy = existingClaudePermissionStrategy;
+	}
+
 	await lockedFileSystem.writeJsonFileAtomic(configPath, payload, {
 		lock: null,
 	});
@@ -627,6 +645,41 @@ export async function saveAgentEnvConfig(config: AgentEnvConfig): Promise<AgentE
 			delete payload.agentEnv;
 		} else {
 			payload.agentEnv = normalized;
+		}
+		await lockedFileSystem.writeJsonFileAtomic(configPath, payload, { lock: null });
+		await restrictConfigFilePermissions(configPath);
+		return normalized;
+	});
+}
+
+/**
+ * Read the hub-central Claude Code permission strategy config from the global
+ * config file. Always targets the hub's own config (callers reach this via
+ * the hub-scoped client), so the same choice is resolved regardless of which
+ * host runs the task.
+ */
+export async function loadClaudePermissionStrategyConfig(): Promise<ClaudePermissionStrategyConfig> {
+	const configPath = getRuntimeGlobalConfigPath();
+	const existing = await readRuntimeConfigFile<RuntimeGlobalConfigFileShape>(configPath);
+	return normalizeClaudePermissionStrategyConfig(existing?.claudePermissionStrategy);
+}
+
+/**
+ * Persist the hub-central Claude Code permission strategy config, preserving
+ * every other field in the global config file. Writes are atomic + locked.
+ */
+export async function saveClaudePermissionStrategyConfig(
+	config: ClaudePermissionStrategyConfig,
+): Promise<ClaudePermissionStrategyConfig> {
+	const configPath = getRuntimeGlobalConfigPath();
+	const normalized = normalizeClaudePermissionStrategyConfig(config);
+	return await lockedFileSystem.withLocks([{ path: configPath, type: "file" }], async () => {
+		const existing = (await readRuntimeConfigFile<RuntimeGlobalConfigFileShape>(configPath)) ?? {};
+		const payload: RuntimeGlobalConfigFileShape = { ...existing };
+		if (isClaudePermissionStrategyConfigEmpty(normalized)) {
+			delete payload.claudePermissionStrategy;
+		} else {
+			payload.claudePermissionStrategy = normalized;
 		}
 		await lockedFileSystem.writeJsonFileAtomic(configPath, payload, { lock: null });
 		await restrictConfigFilePermissions(configPath);

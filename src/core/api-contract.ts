@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { agentEnvConfigSchema, agentEnvMapSchema } from "./agent-env.js";
+import { claudePermissionStrategyConfigSchema, claudePermissionStrategySchema } from "./claude-permission-strategy.js";
 import { resolveTaskTitle } from "./task-title.js";
 
 export const runtimeWorkspaceFileStatusSchema = z.enum([
@@ -1011,6 +1012,20 @@ export type RuntimeAgentEnvConfigResponse = z.infer<typeof runtimeAgentEnvConfig
 export const runtimeAgentEnvSaveRequestSchema = agentEnvConfigSchema;
 export type RuntimeAgentEnvSaveRequest = z.infer<typeof runtimeAgentEnvSaveRequestSchema>;
 
+/**
+ * Hub-central Claude Code permission strategy config (bypass vs. auto mode
+ * across global/project/task scopes), returned/accepted by the endpoints.
+ */
+export const runtimeClaudePermissionStrategyConfigResponseSchema = claudePermissionStrategyConfigSchema;
+export type RuntimeClaudePermissionStrategyConfigResponse = z.infer<
+	typeof runtimeClaudePermissionStrategyConfigResponseSchema
+>;
+
+export const runtimeClaudePermissionStrategySaveRequestSchema = claudePermissionStrategyConfigSchema;
+export type RuntimeClaudePermissionStrategySaveRequest = z.infer<
+	typeof runtimeClaudePermissionStrategySaveRequestSchema
+>;
+
 export const runtimeConfigSaveRequestSchema = z.object({
 	selectedAgentId: runtimeAgentIdSchema.optional(),
 	selectedShortcutLabel: z.string().nullable().optional(),
@@ -1046,6 +1061,12 @@ export const runtimeTaskSessionStartRequestSchema = z.object({
 	 * reaches the agent whether it runs locally or on a proxied remote host.
 	 */
 	env: agentEnvMapSchema.optional(),
+	/**
+	 * Claude Code only: the effective permission strategy for this launch,
+	 * already resolved on the hub from the global/project/task scopes (see
+	 * {@link resolveEffectiveClaudePermissionStrategy}). Ignored by other agents.
+	 */
+	claudePermissionStrategy: claudePermissionStrategySchema.optional(),
 });
 export type RuntimeTaskSessionStartRequest = z.infer<typeof runtimeTaskSessionStartRequestSchema>;
 

@@ -229,6 +229,39 @@ describe("TerminalSessionManager auto-restart", () => {
 		expect(ptySessionSpawnMock).not.toHaveBeenCalled();
 	});
 
+	it("restarts a running Claude task with a freshly resolved permission strategy applied at spawn", async () => {
+		const spawnedSessions: Array<ReturnType<typeof createMockPtySession>> = [];
+		ptySessionSpawnMock.mockImplementation((request: MockSpawnRequest) => {
+			const session = createMockPtySession(spawnedSessions.length === 0 ? 111 : 222, request);
+			spawnedSessions.push(session);
+			return session;
+		});
+
+		const manager = new TerminalSessionManager();
+		manager.attach("task-1", { onState: vi.fn(), onOutput: vi.fn(), onExit: vi.fn() });
+
+		await manager.startTaskSession({
+			taskId: "task-1",
+			agentId: "claude",
+			binary: "claude",
+			args: [],
+			cwd: "/tmp/task-1",
+			prompt: "Fix the bug",
+			claudePermissionStrategy: "bypass",
+		});
+		expect(ptySessionSpawnMock).toHaveBeenCalledTimes(1);
+
+		await manager.restartTaskSessionWithEnv("task-1", undefined, "auto");
+		spawnedSessions[0]?.triggerExit(0);
+
+		await vi.waitFor(() => {
+			expect(ptySessionSpawnMock).toHaveBeenCalledTimes(2);
+		});
+		expect(prepareAgentLaunchMock).toHaveBeenLastCalledWith(
+			expect.objectContaining({ claudePermissionStrategy: "auto" }),
+		);
+	});
+
 	it("sends deferred Codex startup input when the startup UI header appears", async () => {
 		const deferredStartupInput = "\u001b[200~/plan Validate startup UI detect\u001b[201~\r";
 		prepareAgentLaunchMock.mockResolvedValue({
