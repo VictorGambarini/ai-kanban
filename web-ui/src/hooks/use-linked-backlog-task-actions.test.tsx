@@ -301,8 +301,8 @@ describe("useLinkedBacklogTaskActions", () => {
 		});
 
 		expect(stopTaskSession).toHaveBeenCalledTimes(2);
-		expect(stopTaskSession).toHaveBeenNthCalledWith(1, reviewTask.id);
-		expect(stopTaskSession).toHaveBeenNthCalledWith(2, getDetailTerminalTaskId(reviewTask.id));
+		expect(stopTaskSession).toHaveBeenNthCalledWith(1, reviewTask.id, reviewTask.title);
+		expect(stopTaskSession).toHaveBeenNthCalledWith(2, getDetailTerminalTaskId(reviewTask.id), reviewTask.title);
 	});
 
 	it("trashes tasks directly through the request handler", async () => {
@@ -335,7 +335,7 @@ describe("useLinkedBacklogTaskActions", () => {
 		const nextSnapshot = latestSnapshot as HookSnapshot;
 		expect(nextSnapshot.board.columns.find((column) => column.id === "review")?.cards).toHaveLength(0);
 		expect(nextSnapshot.board.columns.find((column) => column.id === "trash")?.cards[0]?.id).toBe("task-2");
-		expect(cleanupTaskWorkspace).toHaveBeenCalledWith("task-2");
+		expect(cleanupTaskWorkspace).toHaveBeenCalledWith("task-2", "Review task");
 	});
 
 	it("can queue the next dependency-unblocked animation before the previous start resolves", async () => {

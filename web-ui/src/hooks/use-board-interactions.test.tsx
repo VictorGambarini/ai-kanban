@@ -883,7 +883,7 @@ describe("useBoardInteractions", () => {
 		});
 
 		expect(notifyErrorMock).not.toHaveBeenCalled();
-		expect(stopTaskSession).toHaveBeenCalledWith("task-review");
+		expect(stopTaskSession).toHaveBeenCalledWith("task-review", "Review task");
 		const backlogIds = currentBoard.columns.find((column) => column.id === "backlog")?.cards.map((card) => card.id);
 		expect(backlogIds).toEqual(["task-review"]);
 	});

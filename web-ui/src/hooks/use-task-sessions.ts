@@ -4,7 +4,7 @@
 import type { Dispatch, SetStateAction } from "react";
 import { useCallback } from "react";
 
-import { notifyError } from "@/components/app-toaster";
+import { dismissAppToast, notifyError, showAppToast } from "@/components/app-toaster";
 import { selectNewestTaskSessionSummary } from "@/hooks/home-sidebar-agent-panel-session-summary";
 import { type ClineChatActionResult, useClineChatRuntimeActions } from "@/hooks/use-cline-chat-runtime-actions";
 import { resolveLaunchAgentEnv } from "@/runtime/agent-env-launch";
@@ -45,6 +45,17 @@ interface StartTaskSessionResult {
 	message?: string;
 }
 
+function formatTaskLabel(taskId: string, taskTitle?: string): string {
+	const trimmed = taskTitle?.trim();
+	return trimmed || `task ${taskId.slice(0, 8)}`;
+}
+
+function notifyTaskStopFailure(taskId: string, taskTitle?: string): void {
+	notifyError(`Could not stop the agent for "${formatTaskLabel(taskId, taskTitle)}".`, {
+		key: `stop-failed:${taskId}`,
+	});
+}
+
 interface StartTaskSessionOptions {
 	resumeFromTrash?: boolean;
 	// Resume an already-started task's agent from its on-disk session without
@@ -59,7 +70,7 @@ export interface UseTaskSessionsResult {
 	upsertSession: (summary: RuntimeTaskSessionSummary) => void;
 	ensureTaskWorkspace: (task: BoardCard) => Promise<EnsureTaskWorkspaceResult>;
 	startTaskSession: (task: BoardCard, options?: StartTaskSessionOptions) => Promise<StartTaskSessionResult>;
-	stopTaskSession: (taskId: string) => Promise<void>;
+	stopTaskSession: (taskId: string, taskTitle?: string) => Promise<void>;
 	restartTaskSessionEnv: (taskId: string) => Promise<StartTaskSessionResult>;
 	sendTaskSessionInput: (
 		taskId: string,
@@ -74,7 +85,7 @@ export interface UseTaskSessionsResult {
 	abortTaskChatTurn: (taskId: string) => Promise<ClineChatActionResult>;
 	cancelTaskChatTurn: (taskId: string) => Promise<ClineChatActionResult>;
 	fetchTaskChatMessages: (taskId: string) => Promise<RuntimeTaskChatMessage[] | null>;
-	cleanupTaskWorkspace: (taskId: string) => Promise<RuntimeWorktreeDeleteResponse | null>;
+	cleanupTaskWorkspace: (taskId: string, taskTitle?: string) => Promise<RuntimeWorktreeDeleteResponse | null>;
 	fetchTaskWorkspaceInfo: (task: BoardCard) => Promise<RuntimeTaskWorkspaceInfoResponse | null>;
 }
 
@@ -205,15 +216,24 @@ export function useTaskSessions({ currentProjectId, setSessions }: UseTaskSessio
 	);
 
 	const stopTaskSession = useCallback(
-		async (taskId: string): Promise<void> => {
+		async (taskId: string, taskTitle?: string): Promise<void> => {
 			if (!currentProjectId) {
 				return;
 			}
 			try {
 				const trpcClient = getRuntimeTrpcClient(currentProjectId);
-				await trpcClient.runtime.stopTaskSession.mutate({ taskId });
-			} catch {
-				// Ignore stop errors during cleanup.
+				const payload = await trpcClient.runtime.stopTaskSession.mutate({ taskId });
+				// `ok: false` with no `error` just means there was nothing running to
+				// stop (benign, e.g. already stopped or never started in this runtime
+				// process) — only a genuine `error` warrants surfacing to the user.
+				if (payload.error) {
+					console.error(`[stopTaskSession] ${payload.error}`);
+					notifyTaskStopFailure(taskId, taskTitle);
+				}
+			} catch (error) {
+				const message = error instanceof Error ? error.message : String(error);
+				console.error(`[stopTaskSession] ${message}`);
+				notifyTaskStopFailure(taskId, taskTitle);
 			}
 		},
 		[currentProjectId],
@@ -285,22 +305,46 @@ export function useTaskSessions({ currentProjectId, setSessions }: UseTaskSessio
 	);
 
 	const cleanupTaskWorkspace = useCallback(
-		async (taskId: string): Promise<RuntimeWorktreeDeleteResponse | null> => {
+		async (taskId: string, taskTitle?: string): Promise<RuntimeWorktreeDeleteResponse | null> => {
 			if (!currentProjectId) {
 				return null;
 			}
+			const notifyCleanupFailure = () => {
+				const label = formatTaskLabel(taskId, taskTitle);
+				notifyError(`Could not clean up the workspace for "${label}". It may remain on disk.`, {
+					key: `cleanup-failed:${taskId}`,
+					timeout: 20000,
+					action: {
+						label: "Retry",
+						onClick: () => {
+							void cleanupTaskWorkspace(taskId, taskTitle).then((result) => {
+								if (result?.ok) {
+									dismissAppToast(`cleanup-failed:${taskId}`);
+									showAppToast({
+										intent: "success",
+										message: `Workspace cleaned up for "${label}".`,
+										timeout: 3000,
+									});
+								}
+							});
+						},
+					},
+				});
+			};
 			try {
 				const trpcClient = getRuntimeTrpcClient(currentProjectId);
 				const payload = await trpcClient.workspace.deleteWorktree.mutate({ taskId });
 				if (!payload.ok) {
 					const message = payload.error ?? "Could not clean up task workspace.";
 					console.error(`[cleanupTaskWorkspace] ${message}`);
+					notifyCleanupFailure();
 					return null;
 				}
 				return payload;
 			} catch (error) {
 				const message = error instanceof Error ? error.message : String(error);
 				console.error(`[cleanupTaskWorkspace] ${message}`);
+				notifyCleanupFailure();
 				return null;
 			}
 		},

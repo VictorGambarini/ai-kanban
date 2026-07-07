@@ -33,8 +33,8 @@ export function useLinkedBacklogTaskActions({
 	board: BoardData;
 	setBoard: Dispatch<SetStateAction<BoardData>>;
 	setSelectedTaskId: Dispatch<SetStateAction<string | null>>;
-	stopTaskSession: (taskId: string) => Promise<void>;
-	cleanupTaskWorkspace: (taskId: string) => Promise<unknown>;
+	stopTaskSession: (taskId: string, taskTitle?: string) => Promise<void>;
+	cleanupTaskWorkspace: (taskId: string, taskTitle?: string) => Promise<unknown>;
 	maybeRequestNotificationPermissionForTaskStart: () => void;
 	kickoffTaskInProgress: (
 		task: BoardCard,
@@ -107,8 +107,8 @@ export function useLinkedBacklogTaskActions({
 			const boardBeforeTrash = currentBoard ?? boardRef.current;
 			const trashed = trashTaskAndGetReadyLinkedTaskIds(boardBeforeTrash, task.id);
 			if (!trashed.moved) {
-				await stopTaskSession(task.id);
-				await cleanupTaskWorkspace(task.id);
+				await stopTaskSession(task.id, task.title);
+				await cleanupTaskWorkspace(task.id, task.title);
 				return;
 			}
 
@@ -166,8 +166,11 @@ export function useLinkedBacklogTaskActions({
 				}
 			}
 
-			await Promise.all([stopTaskSession(task.id), stopTaskSession(getDetailTerminalTaskId(task.id))]);
-			await cleanupTaskWorkspace(task.id);
+			await Promise.all([
+				stopTaskSession(task.id, task.title),
+				stopTaskSession(getDetailTerminalTaskId(task.id), task.title),
+			]);
+			await cleanupTaskWorkspace(task.id, task.title);
 		},
 		[
 			cleanupTaskWorkspace,
