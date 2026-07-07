@@ -29,6 +29,7 @@ export interface TaskDraft {
 	cliModel?: string;
 	clineSettings?: RuntimeTaskClineSettings;
 	skillNames?: string[];
+	runtimeTarget?: string;
 	baseRef: string;
 }
 
@@ -115,6 +116,18 @@ function normalizeSkillNames(rawSkillNames: unknown): string[] | undefined {
 	return skillNames.length > 0 ? skillNames : undefined;
 }
 
+function normalizeRuntimeTarget(rawRuntimeTarget: unknown): string | undefined {
+	if (typeof rawRuntimeTarget !== "string") {
+		return undefined;
+	}
+	const runtimeTarget = rawRuntimeTarget.trim();
+	// "local" is the default; store it as undefined so cards stay minimal.
+	if (!runtimeTarget || runtimeTarget === "local") {
+		return undefined;
+	}
+	return runtimeTarget;
+}
+
 function normalizeTaskClineReasoningEffort(rawReasoningEffort: unknown): RuntimeClineReasoningEffort | undefined {
 	if (
 		rawReasoningEffort === "low" ||
@@ -183,6 +196,7 @@ function normalizeCard(rawCard: unknown): BoardCard | null {
 		clineModelId?: unknown;
 		clineReasoningEffort?: unknown;
 		skillNames?: unknown;
+		runtimeTarget?: unknown;
 		createdAt?: unknown;
 		updatedAt?: unknown;
 	};
@@ -205,6 +219,7 @@ function normalizeCard(rawCard: unknown): BoardCard | null {
 		legacyReasoningEffort: card.clineReasoningEffort,
 	});
 	const skillNames = normalizeSkillNames(card.skillNames);
+	const runtimeTarget = normalizeRuntimeTarget(card.runtimeTarget);
 
 	const now = Date.now();
 
@@ -223,6 +238,7 @@ function normalizeCard(rawCard: unknown): BoardCard | null {
 		...(typeof card.cliModel === "string" && card.cliModel ? { cliModel: card.cliModel } : {}),
 		...(clineSettings !== undefined ? { clineSettings } : {}),
 		...(skillNames !== undefined ? { skillNames } : {}),
+		...(runtimeTarget !== undefined ? { runtimeTarget } : {}),
 		createdAt: typeof card.createdAt === "number" ? card.createdAt : now,
 		updatedAt: typeof card.updatedAt === "number" ? card.updatedAt : now,
 	};
@@ -372,6 +388,7 @@ export function addTaskToColumnWithResult(
 			cliModel: draft.cliModel,
 			clineSettings: draft.clineSettings,
 			skillNames: draft.skillNames,
+			runtimeTarget: draft.runtimeTarget,
 			baseRef: draft.baseRef,
 		},
 		createBrowserUuid,
@@ -579,6 +596,9 @@ export function updateTask(board: BoardData, taskId: string, draft: TaskDraft): 
 						: draft.skillNames.length > 0
 							? [...draft.skillNames]
 							: undefined,
+				// Preserve existing target when the draft omits it; "local"/empty clears to default.
+				runtimeTarget:
+					draft.runtimeTarget === undefined ? card.runtimeTarget : normalizeRuntimeTarget(draft.runtimeTarget),
 				baseRef,
 				updatedAt: Date.now(),
 			};

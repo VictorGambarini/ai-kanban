@@ -206,15 +206,17 @@ import {
 	runtimeWorktreeEnsureResponseSchema,
 } from "../core/api-contract";
 import {
-	type RegisterRemoteHostInput,
-	type RemoteHostConnectionStatus,
-	type RemoteHostSummary,
 	registerRemoteHostInputSchema,
+	registerReverseHostInputSchema,
 	remoteHostConnectionStatusSchema,
+	remoteHostSchema,
 	remoteHostSummarySchema,
-	type UpdateRemoteHostInput,
 	updateRemoteHostInputSchema,
 } from "../hosts/host-types";
+import { type DockerSandboxProfile, dockerSandboxProfilesSchema } from "../sandbox/docker-sandbox-types";
+import type { HostsApi } from "./hosts-api";
+
+const dockerSandboxProfilesResponseSchema = z.object({ profiles: dockerSandboxProfilesSchema });
 
 export interface RuntimeTrpcWorkspaceScope {
 	workspaceId: string;
@@ -235,6 +237,12 @@ export interface RuntimeTrpcContext {
 			scope: RuntimeTrpcWorkspaceScope | null,
 			input: RuntimeAgentEnvSaveRequest,
 		) => Promise<RuntimeAgentEnvConfigResponse>;
+		getDockerSandboxProfiles: () => Promise<{ profiles: DockerSandboxProfile[] }>;
+		saveDockerSandboxProfiles: (
+			scope: RuntimeTrpcWorkspaceScope | null,
+			input: DockerSandboxProfile[],
+		) => Promise<{ profiles: DockerSandboxProfile[] }>;
+
 		saveClineProviderSettings: (
 			scope: RuntimeTrpcWorkspaceScope | null,
 			input: RuntimeClineProviderSettingsSaveRequest,
@@ -428,15 +436,7 @@ export interface RuntimeTrpcContext {
 	hooksApi: {
 		ingest: (input: RuntimeHookIngestRequest) => Promise<RuntimeHookIngestResponse>;
 	};
-	hostsApi: {
-		list: () => Promise<{ hosts: RemoteHostSummary[] }>;
-		add: (input: RegisterRemoteHostInput) => Promise<RemoteHostSummary>;
-		update: (input: { hostId: string; patch: UpdateRemoteHostInput }) => Promise<RemoteHostSummary | null>;
-		remove: (input: { hostId: string }) => Promise<{ ok: boolean }>;
-		connect: (input: { hostId: string }) => Promise<RemoteHostConnectionStatus | null>;
-		restart: (input: { hostId: string }) => Promise<RemoteHostConnectionStatus | null>;
-		disconnect: (input: { hostId: string }) => Promise<{ ok: boolean }>;
-	};
+	hostsApi: HostsApi;
 	claudeStatuslineApi: {
 		load: () => Promise<RuntimeClaudeStatuslineConfig>;
 		save: (input: RuntimeClaudeStatuslineSaveRequest) => Promise<RuntimeClaudeStatuslineConfig>;
@@ -518,6 +518,15 @@ export const runtimeAppRouter = t.router({
 			.output(runtimeAgentEnvConfigResponseSchema)
 			.mutation(async ({ ctx, input }) => {
 				return await ctx.runtimeApi.saveAgentEnv(ctx.workspaceScope, input);
+			}),
+		getDockerSandboxProfiles: t.procedure.output(dockerSandboxProfilesResponseSchema).query(async ({ ctx }) => {
+			return await ctx.runtimeApi.getDockerSandboxProfiles();
+		}),
+		saveDockerSandboxProfiles: t.procedure
+			.input(dockerSandboxProfilesSchema)
+			.output(dockerSandboxProfilesResponseSchema)
+			.mutation(async ({ ctx, input }) => {
+				return await ctx.runtimeApi.saveDockerSandboxProfiles(ctx.workspaceScope, input);
 			}),
 		saveClineProviderSettings: t.procedure
 			.input(runtimeClineProviderSettingsSaveRequestSchema)
@@ -856,6 +865,19 @@ export const runtimeAppRouter = t.router({
 			.output(remoteHostSummarySchema)
 			.mutation(async ({ ctx, input }) => {
 				return await ctx.hostsApi.add(input);
+			}),
+		addReverse: t.procedure
+			.input(registerReverseHostInputSchema)
+			.output(
+				z.object({
+					host: remoteHostSchema,
+					token: z.string(),
+					rendezvousPort: z.number(),
+					hostKeyFingerprint: z.string().nullable(),
+				}),
+			)
+			.mutation(async ({ ctx, input }) => {
+				return await ctx.hostsApi.addReverse(input);
 			}),
 		update: t.procedure
 			.input(z.object({ hostId: z.string(), patch: updateRemoteHostInputSchema }))

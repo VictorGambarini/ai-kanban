@@ -7,9 +7,11 @@ import { useCallback } from "react";
 import { dismissAppToast, notifyError, showAppToast } from "@/components/app-toaster";
 import { selectNewestTaskSessionSummary } from "@/hooks/home-sidebar-agent-panel-session-summary";
 import { type ClineChatActionResult, useClineChatRuntimeActions } from "@/hooks/use-cline-chat-runtime-actions";
+import { LOCAL_HOST_ID, resolveHostIdForTarget } from "@/runtime/active-host";
 import { resolveLaunchAgentEnv } from "@/runtime/agent-env-launch";
+import { setTaskHost } from "@/runtime/task-host-registry";
 import { estimateTaskSessionGeometry } from "@/runtime/task-session-geometry";
-import { getRuntimeTrpcClient } from "@/runtime/trpc-client";
+import { getRuntimeTrpcClientForTask } from "@/runtime/trpc-client";
 import type {
 	RuntimeTaskChatMessage,
 	RuntimeTaskSessionMode,
@@ -48,6 +50,17 @@ interface StartTaskSessionResult {
 function formatTaskLabel(taskId: string, taskTitle?: string): string {
 	const trimmed = taskTitle?.trim();
 	return trimmed || `task ${taskId.slice(0, 8)}`;
+}
+
+// A task targeted at a remote host runs on that host's runtime, so its worktree is
+// created there — which fails if the project's repo isn't present or the host is
+// down. Make that actionable rather than a bare "worktree setup failed".
+function augmentRemoteTargetError(message: string, runtimeTarget: string | undefined): string {
+	const hostId = resolveHostIdForTarget(runtimeTarget);
+	if (hostId === LOCAL_HOST_ID) {
+		return message;
+	}
+	return `${message} (This task runs on host "${hostId}" — ensure the project's repository exists there and the host is connected.)`;
 }
 
 function notifyTaskStopFailure(taskId: string, taskTitle?: string): void {
@@ -143,7 +156,9 @@ export function useTaskSessions({ currentProjectId, setSessions }: UseTaskSessio
 				return { ok: false, message: "No project selected." };
 			}
 			try {
-				const trpcClient = getRuntimeTrpcClient(currentProjectId);
+				// The worktree is created on the task's target host; record the route first.
+				setTaskHost(task.id, task.runtimeTarget);
+				const trpcClient = getRuntimeTrpcClientForTask(currentProjectId, task.id);
 				const payload = await trpcClient.workspace.ensureWorktree.mutate({
 					taskId: task.id,
 					baseRef: task.baseRef,
@@ -151,13 +166,13 @@ export function useTaskSessions({ currentProjectId, setSessions }: UseTaskSessio
 				if (!payload.ok) {
 					return {
 						ok: false,
-						message: payload.error ?? "Worktree setup failed.",
+						message: augmentRemoteTargetError(payload.error ?? "Worktree setup failed.", task.runtimeTarget),
 					};
 				}
 				return { ok: true, response: payload };
 			} catch (error) {
 				const message = error instanceof Error ? error.message : String(error);
-				return { ok: false, message };
+				return { ok: false, message: augmentRemoteTargetError(message, task.runtimeTarget) };
 			}
 		},
 		[currentProjectId],
@@ -176,7 +191,8 @@ export function useTaskSessions({ currentProjectId, setSessions }: UseTaskSessio
 				// the same, but staying undefined avoids a spurious payload diff).
 				const isResume = options?.resumeFromTrash === true || options?.resume === true ? true : undefined;
 				const kickoffPrompt = isResume ? "" : task.prompt.trim();
-				const trpcClient = getRuntimeTrpcClient(currentProjectId);
+				setTaskHost(task.id, task.runtimeTarget);
+				const trpcClient = getRuntimeTrpcClientForTask(currentProjectId, task.id);
 				const geometry =
 					getTerminalGeometry(task.id) ?? estimateTaskSessionGeometry(window.innerWidth, window.innerHeight);
 				const env = await resolveLaunchAgentEnv({ projectId: currentProjectId, taskId: task.id });
@@ -194,6 +210,7 @@ export function useTaskSessions({ currentProjectId, setSessions }: UseTaskSessio
 					cliModel: task.cliModel,
 					clineSettings: task.clineSettings,
 					skillNames: task.skillNames,
+					runtimeTarget: task.runtimeTarget,
 					env,
 				});
 				if (!payload.ok || !payload.summary) {
@@ -221,7 +238,7 @@ export function useTaskSessions({ currentProjectId, setSessions }: UseTaskSessio
 				return;
 			}
 			try {
-				const trpcClient = getRuntimeTrpcClient(currentProjectId);
+				const trpcClient = getRuntimeTrpcClientForTask(currentProjectId, taskId);
 				const payload = await trpcClient.runtime.stopTaskSession.mutate({ taskId });
 				// `ok: false` with no `error` just means there was nothing running to
 				// stop (benign, e.g. already stopped or never started in this runtime
@@ -248,7 +265,7 @@ export function useTaskSessions({ currentProjectId, setSessions }: UseTaskSessio
 				return { ok: false, message: "No project selected." };
 			}
 			try {
-				const trpcClient = getRuntimeTrpcClient(currentProjectId);
+				const trpcClient = getRuntimeTrpcClientForTask(currentProjectId, taskId);
 				const payload = await trpcClient.runtime.restartTaskSessionEnv.mutate({ taskId });
 				if (!payload.ok) {
 					return { ok: false, message: payload.error ?? "Could not restart the task." };
@@ -282,7 +299,7 @@ export function useTaskSessions({ currentProjectId, setSessions }: UseTaskSessio
 				return { ok: false, message: "No project selected." };
 			}
 			try {
-				const trpcClient = getRuntimeTrpcClient(currentProjectId);
+				const trpcClient = getRuntimeTrpcClientForTask(currentProjectId, taskId);
 				const payload = await trpcClient.runtime.sendTaskSessionInput.mutate({
 					taskId,
 					text,
@@ -332,7 +349,7 @@ export function useTaskSessions({ currentProjectId, setSessions }: UseTaskSessio
 				});
 			};
 			try {
-				const trpcClient = getRuntimeTrpcClient(currentProjectId);
+				const trpcClient = getRuntimeTrpcClientForTask(currentProjectId, taskId);
 				const payload = await trpcClient.workspace.deleteWorktree.mutate({ taskId });
 				if (!payload.ok) {
 					const message = payload.error ?? "Could not clean up task workspace.";
@@ -357,7 +374,8 @@ export function useTaskSessions({ currentProjectId, setSessions }: UseTaskSessio
 				return null;
 			}
 			try {
-				const trpcClient = getRuntimeTrpcClient(currentProjectId);
+				setTaskHost(task.id, task.runtimeTarget);
+				const trpcClient = getRuntimeTrpcClientForTask(currentProjectId, task.id);
 				return await trpcClient.workspace.getTaskContext.query({
 					taskId: task.id,
 					baseRef: task.baseRef,

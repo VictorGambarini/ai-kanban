@@ -127,6 +127,8 @@ export function TaskCreateDialog({
 	onClineSettingsChange,
 	skillNames,
 	onSkillNamesChange,
+	runtimeTarget,
+	onRuntimeTargetChange,
 	env,
 	onEnvChange,
 	defaultAgentId,
@@ -165,6 +167,8 @@ export function TaskCreateDialog({
 	onClineSettingsChange?: (value: RuntimeTaskClineSettings | undefined) => void;
 	skillNames?: string[];
 	onSkillNamesChange?: (value: string[]) => void;
+	runtimeTarget?: string;
+	onRuntimeTargetChange?: (value: string | undefined) => void;
 	/** Custom env collected for the new task; persisted once the task is created. */
 	env: AgentEnvMap;
 	onEnvChange: (value: AgentEnvMap) => void;
@@ -604,6 +608,8 @@ export function TaskCreateDialog({
 							onClineSettingsChange={onClineSettingsChange}
 							skillNames={skillNames}
 							onSkillNamesChange={onSkillNamesChange}
+							runtimeTarget={runtimeTarget}
+							onRuntimeTargetChange={onRuntimeTargetChange}
 							workspaceSkills={workspaceSkills}
 							workspaceId={workspaceId}
 							agentOptions={agentOptions}

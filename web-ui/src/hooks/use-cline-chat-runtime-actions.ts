@@ -3,7 +3,7 @@
 // and load history through one runtime contract.
 import { useCallback } from "react";
 
-import { getRuntimeTrpcClient } from "@/runtime/trpc-client";
+import { getRuntimeTrpcClientForTask } from "@/runtime/trpc-client";
 import type {
 	RuntimeTaskChatMessage,
 	RuntimeTaskImage,
@@ -52,7 +52,10 @@ export function useClineChatRuntimeActions({
 				return { ok: false, message: "No project selected." };
 			}
 			try {
-				const payload = await getRuntimeTrpcClient(currentProjectId).runtime.sendTaskChatMessage.mutate({
+				const payload = await getRuntimeTrpcClientForTask(
+					currentProjectId,
+					taskId,
+				).runtime.sendTaskChatMessage.mutate({
 					taskId,
 					text,
 					...(options?.images && options.images.length > 0 ? { images: options.images } : {}),
@@ -81,7 +84,10 @@ export function useClineChatRuntimeActions({
 				return null;
 			}
 			try {
-				const payload = await getRuntimeTrpcClient(currentProjectId).runtime.getTaskChatMessages.query({ taskId });
+				const payload = await getRuntimeTrpcClientForTask(
+					currentProjectId,
+					taskId,
+				).runtime.getTaskChatMessages.query({ taskId });
 				return payload.ok ? payload.messages : null;
 			} catch {
 				return null;
@@ -96,7 +102,10 @@ export function useClineChatRuntimeActions({
 				return { ok: false, message: "No project selected." };
 			}
 			try {
-				const payload = await getRuntimeTrpcClient(currentProjectId).runtime.abortTaskChatTurn.mutate({ taskId });
+				const payload = await getRuntimeTrpcClientForTask(
+					currentProjectId,
+					taskId,
+				).runtime.abortTaskChatTurn.mutate({ taskId });
 				if (!payload.ok) {
 					return { ok: false, message: payload.error ?? "Could not abort chat turn." };
 				}
@@ -117,7 +126,10 @@ export function useClineChatRuntimeActions({
 				return { ok: false, message: "No project selected." };
 			}
 			try {
-				const payload = await getRuntimeTrpcClient(currentProjectId).runtime.cancelTaskChatTurn.mutate({ taskId });
+				const payload = await getRuntimeTrpcClientForTask(
+					currentProjectId,
+					taskId,
+				).runtime.cancelTaskChatTurn.mutate({ taskId });
 				if (!payload.ok) {
 					return { ok: false, message: payload.error ?? "Could not cancel chat turn." };
 				}

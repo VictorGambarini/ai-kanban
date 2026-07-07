@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import { getHubTrpcClient } from "@/runtime/trpc-client";
 
 export type RemoteHostSummary = RuntimeAppRouterOutputs["hosts"]["list"]["hosts"][number];
+export type AddReverseHostResult = RuntimeAppRouterOutputs["hosts"]["addReverse"];
 
 export interface RegisterHostInput {
 	label: string;
@@ -39,6 +40,7 @@ export interface UseHostsResult {
 	error: string | null;
 	refresh: () => Promise<void>;
 	addHost: (input: RegisterHostInput) => Promise<RemoteHostSummary>;
+	addReverseHost: (label: string) => Promise<AddReverseHostResult>;
 	updateHost: (hostId: string, patch: UpdateHostInput) => Promise<RemoteHostSummary | null>;
 	removeHost: (hostId: string) => Promise<void>;
 	connectHost: (hostId: string) => Promise<void>;
@@ -91,6 +93,15 @@ export function useHosts(): UseHostsResult {
 		[refresh],
 	);
 
+	const addReverseHost = useCallback(
+		async (label: string) => {
+			const result = await getHubTrpcClient().hosts.addReverse.mutate({ label });
+			await refresh();
+			return result;
+		},
+		[refresh],
+	);
+
 	const updateHost = useCallback(
 		async (hostId: string, patch: UpdateHostInput) => {
 			const summary = await getHubTrpcClient().hosts.update.mutate({ hostId, patch });
@@ -138,6 +149,7 @@ export function useHosts(): UseHostsResult {
 		error,
 		refresh,
 		addHost,
+		addReverseHost,
 		updateHost,
 		removeHost,
 		connectHost,

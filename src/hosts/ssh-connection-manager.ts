@@ -46,6 +46,11 @@ export function expandHomePath(path: string): string {
 
 function buildConnectConfig(host: RemoteHost): ConnectConfig {
 	const { ssh } = host;
+	if (!ssh) {
+		// Only SSH-transport hosts reach the connection manager; reverse hosts are
+		// driven by the rendezvous server and never dial out.
+		throw new Error(`Host "${host.id}" has no SSH configuration.`);
+	}
 	const config: ConnectConfig = {
 		host: ssh.hostname,
 		port: ssh.port,

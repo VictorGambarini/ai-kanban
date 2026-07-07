@@ -77,6 +77,8 @@ export function TaskInlineCreateCard({
 	onClineSettingsChange,
 	skillNames,
 	onSkillNamesChange,
+	runtimeTarget,
+	onRuntimeTargetChange,
 	defaultAgentId,
 	defaultProviderId,
 	defaultModelId,
@@ -116,6 +118,8 @@ export function TaskInlineCreateCard({
 	onClineSettingsChange?: (value: RuntimeTaskClineSettings | undefined) => void;
 	skillNames?: string[];
 	onSkillNamesChange?: (value: string[]) => void;
+	runtimeTarget?: string;
+	onRuntimeTargetChange?: (value: string | undefined) => void;
 	/** Default agent ID from runtimeConfig.selectedAgentId, used to show "Default (AgentName)" in picker */
 	defaultAgentId?: RuntimeAgentId | null;
 	/** Default Cline provider ID from runtimeConfig.clineProviderSettings.providerId */
@@ -335,6 +339,8 @@ export function TaskInlineCreateCard({
 						onClineSettingsChange={onClineSettingsChange}
 						skillNames={skillNames}
 						onSkillNamesChange={onSkillNamesChange}
+						runtimeTarget={runtimeTarget}
+						onRuntimeTargetChange={onRuntimeTargetChange}
 						workspaceSkills={workspaceSkills}
 						workspaceId={workspaceId}
 						agentOptions={agentOptions}

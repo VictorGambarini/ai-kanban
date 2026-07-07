@@ -26,6 +26,7 @@ import {
 } from "../core/runtime-endpoint";
 import { isLocalHostId, proxyHttpRequest, proxyWebSocketUpgrade, readHostIdFromRequest } from "../hosts/host-proxy";
 import { HostsManager } from "../hosts/hosts-manager";
+import { RendezvousServer } from "../hosts/rendezvous-server";
 import {
 	checkRateLimit,
 	clearRateLimit,
@@ -78,6 +79,10 @@ export interface CreateRuntimeServerDependencies {
 	pickDirectoryPathFromSystemDialog: () => Promise<string | null>;
 	getUpdateStatus: () => RuntimeUpdateStatusResponse;
 	runUpdateNow: () => Promise<RuntimeRunUpdateResponse>;
+	/** When set, run the SSH rendezvous server for reverse (dial-in) hosts on this port. */
+	rendezvousPort?: number;
+	/** Interface the rendezvous server binds. Defaults to loopback; expose over Tailscale, never 0.0.0.0. */
+	rendezvousBindAddress?: string;
 }
 
 export interface RuntimeServer {
@@ -116,6 +121,19 @@ export async function createRuntimeServer(deps: CreateRuntimeServerDependencies)
 	// Manages SSH connections + forwarded ports to remote hosts (VMs). The
 	// hub proxies host-scoped API/WS traffic to a host's forwarded loopback port.
 	const hostsManager = new HostsManager({ warn: deps.warn });
+
+	// Optional SSH rendezvous server: lets reverse (dial-in) hosts — laptops behind
+	// NAT that can reach the hub but not vice-versa — attach themselves. Off unless a
+	// port is configured; binds a private interface by default.
+	const rendezvousServer =
+		deps.rendezvousPort !== undefined
+			? new RendezvousServer({
+					hostsManager,
+					port: deps.rendezvousPort,
+					bindAddress: deps.rendezvousBindAddress,
+					warn: deps.warn,
+				})
+			: null;
 
 	const resolveWorkspaceScopeFromRequest = async (
 		request: IncomingMessage,
@@ -254,7 +272,12 @@ export async function createRuntimeServer(deps: CreateRuntimeServerDependencies)
 				broadcastRuntimeWorkspaceStateUpdated: deps.runtimeStateHub.broadcastRuntimeWorkspaceStateUpdated,
 				broadcastTaskReadyForReview: deps.runtimeStateHub.broadcastTaskReadyForReview,
 			}),
-			hostsApi: createHostsApi({ hostsManager }),
+			hostsApi: createHostsApi({
+				hostsManager,
+				getRendezvousInfo: rendezvousServer
+					? () => ({ port: deps.rendezvousPort ?? 0, fingerprint: rendezvousServer.getHostKeyFingerprint() })
+					: undefined,
+			}),
 			claudeStatuslineApi: createClaudeStatuslineApi(),
 		};
 	};
@@ -582,6 +605,11 @@ export async function createRuntimeServer(deps: CreateRuntimeServerDependencies)
 	void hostsManager.start().catch((error) => {
 		deps.warn(`Failed to start remote hosts: ${error instanceof Error ? error.message : String(error)}`);
 	});
+	if (rendezvousServer) {
+		void rendezvousServer.start().catch((error) => {
+			deps.warn(`Failed to start the rendezvous server: ${error instanceof Error ? error.message : String(error)}`);
+		});
+	}
 	const activeWorkspaceId = deps.workspaceRegistry.getActiveWorkspaceId();
 	const url = activeWorkspaceId
 		? buildKanbanRuntimeUrl(`/${encodeURIComponent(activeWorkspaceId)}`)
@@ -590,6 +618,7 @@ export async function createRuntimeServer(deps: CreateRuntimeServerDependencies)
 	return {
 		url,
 		close: async () => {
+			rendezvousServer?.close();
 			hostsManager.disconnectAll();
 			await Promise.all(
 				Array.from(clineTaskSessionServiceByWorkspaceId.values()).map(async (service) => {

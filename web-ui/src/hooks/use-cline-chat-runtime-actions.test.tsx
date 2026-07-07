@@ -10,8 +10,8 @@ const getTaskChatMessagesQueryMock = vi.hoisted(() => vi.fn());
 const abortTaskChatTurnMutateMock = vi.hoisted(() => vi.fn());
 const cancelTaskChatTurnMutateMock = vi.hoisted(() => vi.fn());
 
-vi.mock("@/runtime/trpc-client", () => ({
-	getRuntimeTrpcClient: () => ({
+vi.mock("@/runtime/trpc-client", () => {
+	const client = () => ({
 		runtime: {
 			sendTaskChatMessage: {
 				mutate: sendTaskChatMessageMutateMock,
@@ -26,8 +26,9 @@ vi.mock("@/runtime/trpc-client", () => ({
 				mutate: cancelTaskChatTurnMutateMock,
 			},
 		},
-	}),
-}));
+	});
+	return { getRuntimeTrpcClient: client, getRuntimeTrpcClientForTask: client };
+});
 
 interface HookSnapshot {
 	sendTaskChatMessage: ReturnType<typeof useClineChatRuntimeActions>["sendTaskChatMessage"];

@@ -1,9 +1,17 @@
 import type { Command } from "commander";
 
 import { listRemoteHosts, registerRemoteHost, removeRemoteHost } from "../hosts/host-registry";
+import type { RemoteHost } from "../hosts/host-types";
 
 function printLine(message: string): void {
 	process.stdout.write(`${message}\n`);
+}
+
+function describeHostEndpoint(host: RemoteHost): string {
+	if (host.ssh) {
+		return `${host.ssh.username}@${host.ssh.hostname}:${host.ssh.port}`;
+	}
+	return `${host.transport} (dial-in)`;
 }
 
 interface AddHostOptions {
@@ -62,9 +70,7 @@ export function registerHostsCommand(program: Command): void {
 				},
 				runtimePort: parsePort(options.runtimePort, "--runtime-port"),
 			});
-			printLine(
-				`Registered host "${host.label}" (id: ${host.id}) — ${host.ssh.username}@${host.ssh.hostname}:${host.ssh.port}`,
-			);
+			printLine(`Registered host "${host.label}" (id: ${host.id}) — ${describeHostEndpoint(host)}`);
 			printLine("Restart the hub (or use the UI) to connect it.");
 		});
 
@@ -78,9 +84,7 @@ export function registerHostsCommand(program: Command): void {
 				return;
 			}
 			for (const host of all) {
-				printLine(
-					`${host.id}\t${host.label}\t${host.ssh.username}@${host.ssh.hostname}:${host.ssh.port}\truntime:${host.runtimePort}`,
-				);
+				printLine(`${host.id}\t${host.label}\t${describeHostEndpoint(host)}\truntime:${host.runtimePort}`);
 			}
 		});
 

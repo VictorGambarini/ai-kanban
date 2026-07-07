@@ -1,6 +1,5 @@
 import { useEffect, useReducer } from "react";
 
-import { applyActiveHostToUrl } from "@/runtime/active-host";
 import type {
 	RuntimeClineMcpServerAuthStatus,
 	RuntimeProjectSummary,
@@ -44,7 +43,8 @@ function getRuntimeStreamUrl(workspaceId: string | null): string {
 	if (workspaceId) {
 		url.searchParams.set("workspaceId", workspaceId);
 	}
-	applyActiveHostToUrl(url);
+	// The board/project state stream is hub-owned; remote tasks' session summaries
+	// are fanned in separately (see use-remote-session-streams).
 	return url.toString();
 }
 

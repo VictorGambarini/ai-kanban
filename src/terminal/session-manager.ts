@@ -9,6 +9,7 @@ import type {
 	RuntimeTaskSessionSummary,
 	RuntimeTaskTurnCheckpoint,
 } from "../core/api-contract";
+import { buildSandboxAgentCommand, type SandboxExecWrapper } from "../sandbox/sandbox-manager";
 import {
 	type AgentAdapterLaunchInput,
 	type AgentOutputTransitionDetector,
@@ -106,6 +107,11 @@ export interface StartTaskSessionRequest {
 	rows?: number;
 	env?: Record<string, string | undefined>;
 	workspaceId?: string;
+	/**
+	 * When set, the agent is launched inside a Docker sandbox via `docker exec`
+	 * instead of directly on this host. See {@link SandboxExecWrapper}.
+	 */
+	execWrapper?: SandboxExecWrapper;
 }
 
 export interface StartShellSessionRequest {
@@ -405,13 +411,30 @@ export class TerminalSessionManager implements TerminalSessionService {
 		const hasCodexLaunchSignature = [commandBinary, ...commandArgs].some((part) =>
 			part.toLowerCase().includes("codex"),
 		);
+
+		// Docker-sandbox tasks run the agent inside a per-task container via `docker exec`.
+		// We wrap the finalized command; the per-task env is injected inside the container
+		// (via `-e`), so the hub-side `docker` client only needs the plain runtime env.
+		const wrapped = request.execWrapper
+			? buildSandboxAgentCommand({
+					wrapper: request.execWrapper,
+					binary: commandBinary,
+					args: commandArgs,
+					envMap: request.env,
+				})
+			: null;
+		const spawnBinary = wrapped?.binary ?? commandBinary;
+		const spawnArgs = wrapped?.args ?? commandArgs;
+		const spawnCwd = wrapped ? process.cwd() : request.cwd;
+		const spawnEnv = wrapped ? buildTerminalEnvironment(undefined) : env;
+
 		let session: PtySession;
 		try {
 			session = PtySession.spawn({
-				binary: commandBinary,
-				args: commandArgs,
-				cwd: request.cwd,
-				env,
+				binary: spawnBinary,
+				args: spawnArgs,
+				cwd: spawnCwd,
+				env: spawnEnv,
 				cols,
 				rows,
 				onData: (chunk) => {

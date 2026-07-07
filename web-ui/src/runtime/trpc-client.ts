@@ -1,6 +1,7 @@
 import type { RuntimeAppRouter } from "@runtime-trpc";
 import { createTRPCProxyClient, httpBatchLink, TRPCClientError } from "@trpc/client";
-import { activeHostHeaders } from "@/runtime/active-host";
+import { hostHeadersForHostId, LOCAL_HOST_ID } from "@/runtime/active-host";
+import { getTaskHostId } from "@/runtime/task-host-registry";
 
 interface TrpcErrorDataWithConflictRevision {
 	code?: string;
@@ -9,11 +10,19 @@ interface TrpcErrorDataWithConflictRevision {
 
 type RuntimeTrpcClient = ReturnType<typeof createTRPCProxyClient<RuntimeAppRouter>>;
 
-const clientByWorkspaceId = new Map<string, RuntimeTrpcClient>();
+const clientByKey = new Map<string, RuntimeTrpcClient>();
 
-export function getRuntimeTrpcClient(workspaceId: string | null): RuntimeTrpcClient {
-	const key = workspaceId ?? "__unscoped__";
-	const existing = clientByWorkspaceId.get(key);
+/**
+ * A runtime tRPC client scoped to a workspace and a host. `hostId` defaults to the
+ * hub (`LOCAL_HOST_ID`) because the board is hub-owned; per-task *execution* callers
+ * pass an explicit host via {@link getRuntimeTrpcClientForTask} so different tasks
+ * on one board reach their own runtimes. Batching means one HTTP request carries a
+ * single host header, so clients are cached per (workspace, host) rather than
+ * reading the host per-request.
+ */
+export function getRuntimeTrpcClient(workspaceId: string | null, hostId: string = LOCAL_HOST_ID): RuntimeTrpcClient {
+	const key = `${workspaceId ?? "__unscoped__"}::${hostId}`;
+	const existing = clientByKey.get(key);
 	if (existing) {
 		return existing;
 	}
@@ -21,17 +30,24 @@ export function getRuntimeTrpcClient(workspaceId: string | null): RuntimeTrpcCli
 		links: [
 			httpBatchLink({
 				url: "/api/trpc",
-				// The active host is read per-request so a single cached client keeps
-				// routing correctly to whichever host is selected.
 				headers: () => ({
 					...(workspaceId ? { "x-kanban-workspace-id": workspaceId } : {}),
-					...activeHostHeaders(),
+					...hostHeadersForHostId(hostId),
 				}),
 			}),
 		],
 	});
-	clientByWorkspaceId.set(key, created);
+	clientByKey.set(key, created);
 	return created;
+}
+
+/**
+ * The runtime client for a specific task's execution host (resolved from the
+ * task→host registry). Use this for every per-task op — worktree ensure/delete,
+ * start/stop/restart/input, chat — so it lands on the runtime that owns the task.
+ */
+export function getRuntimeTrpcClientForTask(workspaceId: string | null, taskId: string): RuntimeTrpcClient {
+	return getRuntimeTrpcClient(workspaceId, getTaskHostId(taskId));
 }
 
 export function createWorkspaceTrpcClient(workspaceId: string): RuntimeTrpcClient {

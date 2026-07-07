@@ -17,6 +17,7 @@ import {
 	parseWorktreeDeleteRequest,
 	parseWorktreeEnsureRequest,
 } from "../core/api-validation";
+import { teardownSandbox } from "../sandbox/sandbox-manager";
 import { saveWorkspaceState, WorkspaceStateConflictError } from "../state/workspace-state";
 import type { TerminalSessionManager } from "../terminal/session-manager";
 import {
@@ -336,6 +337,9 @@ export function createWorkspaceApi(deps: CreateWorkspaceApiDependencies): Runtim
 		},
 		deleteWorktree: async (workspaceScope, input) => {
 			const body = parseWorktreeDeleteRequest(input);
+			// Tear down the task's Docker sandbox first (no-op unless it had one), so the
+			// bind-mounted worktree isn't held by a running container when we remove it.
+			await teardownSandbox(body.taskId);
 			return await deleteTaskWorktree({
 				repoPath: workspaceScope.workspacePath,
 				taskId: body.taskId,

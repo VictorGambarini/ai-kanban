@@ -1,5 +1,5 @@
 import type { DropResult } from "@hello-pangea/dnd";
-import { Files, GitCompareArrows, Maximize2, MessageSquare, Minimize2, X } from "lucide-react";
+import { Container, Files, GitCompareArrows, Maximize2, MessageSquare, Minimize2, Server, X } from "lucide-react";
 import type { MouseEvent as ReactMouseEvent, ReactNode } from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useHotkeys } from "react-hotkeys-hook";
@@ -745,7 +745,18 @@ export function CardDetailView({
 	// break, and the only one we can re-spawn from the UI — so the connection status
 	// and Restart control belong to it specifically.
 	const showTerminalAgentControls = isStartedColumn && !showClineAgentChatPanel;
-	const showTaskControlBar = showTaskEnvControl || showTaskSkillsControl || showTerminalAgentControls;
+	const runtimeTarget = selection.card.runtimeTarget;
+	const runtimeTargetInfo = runtimeTarget?.startsWith("ssh:")
+		? { icon: <Server size={11} className="shrink-0" />, label: runtimeTarget.slice(4), title: "Runs on remote host" }
+		: runtimeTarget?.startsWith("docker:")
+			? {
+					icon: <Container size={11} className="shrink-0" />,
+					label: runtimeTarget.slice(7),
+					title: "Runs in a Docker sandbox",
+				}
+			: null;
+	const showTaskControlBar =
+		showTaskEnvControl || showTaskSkillsControl || showTerminalAgentControls || runtimeTargetInfo !== null;
 	const agentArea = (
 		<div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
 			{showTaskControlBar ? (
@@ -753,6 +764,15 @@ export function CardDetailView({
 					<div className="flex min-w-0 items-center gap-2">
 						{showTerminalAgentControls ? (
 							<AgentStatusIndicator summary={sessionSummary} connectionStatus={terminalConnectionStatus} />
+						) : null}
+						{runtimeTargetInfo ? (
+							<span
+								className="inline-flex items-center gap-1 rounded-sm border border-border bg-surface-2 px-1.5 py-0.5 text-[11px] text-text-secondary"
+								title={runtimeTargetInfo.title}
+							>
+								{runtimeTargetInfo.icon}
+								<span className="min-w-0 truncate">{runtimeTargetInfo.label}</span>
+							</span>
 						) : null}
 					</div>
 					<div className="flex items-center gap-2">
