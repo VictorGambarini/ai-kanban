@@ -410,10 +410,16 @@ export function RuntimeSettingsDialog({
 	const { resetLayoutCustomizations } = useLayoutCustomizations();
 	const [selectedAgentId, setSelectedAgentId] = useState<RuntimeAgentId>("claude");
 	const [agentAutonomousModeEnabled, setAgentAutonomousModeEnabled] = useState(true);
-	// Loaded unconditionally (not gated on selectedAgentId === "claude") purely for the
-	// command preview below; ClaudePermissionStrategySettingsSection loads its own copy
-	// to edit, since it's only rendered while Claude is selected.
-	const { config: claudePermissionStrategyConfig } = useClaudePermissionStrategy(open);
+	// Loaded unconditionally (not gated on selectedAgentId === "claude") so the command
+	// preview below stays live; shared with ClaudePermissionStrategySettingsSection (passed
+	// down as props) so its save updates this same state instead of a second, stale copy.
+	const {
+		config: claudePermissionStrategyConfig,
+		isLoading: isClaudePermissionStrategyLoading,
+		isError: isClaudePermissionStrategyError,
+		isSaving: isClaudePermissionStrategySaving,
+		save: saveClaudePermissionStrategy,
+	} = useClaudePermissionStrategy(open);
 	const resolvedClaudePermissionStrategy = useMemo(
 		() => resolveEffectiveClaudePermissionStrategy(claudePermissionStrategyConfig, { projectId: workspaceId }),
 		[claudePermissionStrategyConfig, workspaceId],
@@ -914,7 +920,14 @@ export function RuntimeSettingsDialog({
 					</div>
 
 					{selectedAgentId === "claude" ? (
-						<ClaudePermissionStrategySettingsSection open={open} workspaceId={workspaceId} />
+						<ClaudePermissionStrategySettingsSection
+							workspaceId={workspaceId}
+							config={claudePermissionStrategyConfig}
+							isLoading={isClaudePermissionStrategyLoading}
+							isError={isClaudePermissionStrategyError}
+							isSaving={isClaudePermissionStrategySaving}
+							save={saveClaudePermissionStrategy}
+						/>
 					) : null}
 
 					{/* ---- Cline ---- */}

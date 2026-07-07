@@ -1,10 +1,9 @@
-import type { ClaudePermissionStrategy } from "@runtime-claude-permission-strategy";
+import type { ClaudePermissionStrategy, ClaudePermissionStrategyConfig } from "@runtime-claude-permission-strategy";
 import { ShieldCheck } from "lucide-react";
 import { useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { NativeSelect } from "@/components/ui/native-select";
 import { Spinner } from "@/components/ui/spinner";
-import { useClaudePermissionStrategy } from "@/hooks/use-claude-permission-strategy";
 import { useClaudePermissionStrategyScopeValue } from "@/hooks/use-claude-permission-strategy-scope";
 
 import {
@@ -13,8 +12,18 @@ import {
 } from "./claude-permission-strategy-scope";
 
 interface ClaudePermissionStrategySettingsSectionProps {
-	open: boolean;
 	workspaceId: string | null;
+	/**
+	 * Config/save plumbing lifted from the parent dialog (rather than fetched
+	 * here) so this section's save updates the SAME state the dialog's own
+	 * command preview reads — two independent fetches would leave the preview
+	 * showing the pre-save value until the app is reloaded.
+	 */
+	config: ClaudePermissionStrategyConfig;
+	isLoading: boolean;
+	isError: boolean;
+	isSaving: boolean;
+	save: (next: ClaudePermissionStrategyConfig) => Promise<ClaudePermissionStrategyConfig | null>;
 }
 
 const USE_GLOBAL_DEFAULT_VALUE = "__use_global_default__";
@@ -28,11 +37,13 @@ const USE_GLOBAL_DEFAULT_VALUE = "__use_global_default__";
  * while Claude Code is the selected agent in this dialog.
  */
 export function ClaudePermissionStrategySettingsSection({
-	open,
 	workspaceId,
+	config,
+	isLoading,
+	isError,
+	isSaving,
+	save,
 }: ClaudePermissionStrategySettingsSectionProps): JSX.Element {
-	const { config, isLoading, isError, isSaving, save } = useClaudePermissionStrategy(open);
-
 	const globalStoredValue = useMemo(() => selectClaudePermissionStrategyScope(config, { kind: "global" }), [config]);
 	const projectStoredValue = useMemo(
 		() => selectClaudePermissionStrategyScope(config, { kind: "project", projectId: workspaceId }),
