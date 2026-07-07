@@ -1,4 +1,5 @@
 import type { AgentEnvMap } from "@runtime-agent-env";
+import type { ClaudePermissionStrategy } from "@runtime-claude-permission-strategy";
 import { deriveTaskTitleFromPrompt } from "@runtime-task-title";
 import type { Dispatch, SetStateAction } from "react";
 import { useCallback, useEffect, useMemo, useState } from "react";
@@ -11,6 +12,7 @@ import {
 	TASK_START_IN_PLAN_MODE_STORAGE_KEY,
 } from "@/hooks/app-utils";
 import { queueTaskEnvWrite } from "@/runtime/pending-agent-env-writes";
+import { queueTaskClaudePermissionStrategyWrite } from "@/runtime/pending-claude-permission-strategy-writes";
 import { persistTaskAgentDefaultsIfChanged } from "@/runtime/persist-task-agent-defaults";
 import type { RuntimeAgentId, RuntimeConfigResponse, RuntimeTaskClineSettings } from "@/runtime/types";
 import { addTaskToColumnWithResult, findCardSelection, updateTask, updateTaskTitle } from "@/state/board-state";
@@ -68,6 +70,8 @@ export interface UseTaskEditorResult {
 	setNewTaskSkillNames: Dispatch<SetStateAction<string[]>>;
 	newTaskEnv: AgentEnvMap;
 	setNewTaskEnv: Dispatch<SetStateAction<AgentEnvMap>>;
+	newTaskClaudePermissionStrategy: ClaudePermissionStrategy | null;
+	setNewTaskClaudePermissionStrategy: Dispatch<SetStateAction<ClaudePermissionStrategy | null>>;
 	editingTaskId: string | null;
 	editTaskPrompt: string;
 	setEditTaskPrompt: Dispatch<SetStateAction<string>>;
@@ -149,6 +153,9 @@ export function useTaskEditor({
 	const [newTaskSkillNames, setNewTaskSkillNames] = useState<string[]>(() => readLastUsedSkillNames(currentProjectId));
 	// Custom env for a not-yet-created task; persisted to the hub config once the task has an id.
 	const [newTaskEnv, setNewTaskEnv] = useState<AgentEnvMap>({});
+	// Claude Code permission mode override for a not-yet-created task; persisted to the hub config once the task has an id.
+	const [newTaskClaudePermissionStrategy, setNewTaskClaudePermissionStrategy] =
+		useState<ClaudePermissionStrategy | null>(null);
 	const [editTaskAgentId, setEditTaskAgentId] = useState<RuntimeAgentId | undefined>(undefined);
 	const [editTaskCliModel, setEditTaskCliModel] = useState<string | undefined>(undefined);
 	const [editTaskClineSettings, setEditTaskClineSettings] = useState<RuntimeTaskClineSettings | undefined>(undefined);
@@ -423,6 +430,13 @@ export function useTaskEditor({
 					toast.error("Task created, but saving its environment variables failed");
 				});
 			}
+			// Persist the create-time permission mode override the same way, awaited by
+			// the launch path (see pending-claude-permission-strategy-writes).
+			if (newTaskClaudePermissionStrategy) {
+				void queueTaskClaudePermissionStrategyWrite(created.task.id, newTaskClaudePermissionStrategy).catch(() => {
+					toast.error("Task created, but saving its permission mode failed");
+				});
+			}
 			// Remember an explicit agent/model override as the default for the next task.
 			void persistTaskAgentDefaultsIfChanged({
 				workspaceId: currentProjectId,
@@ -439,6 +453,7 @@ export function useTaskEditor({
 			setNewTaskClineSettings(undefined);
 			setNewTaskSkillNames(readLastUsedSkillNames(currentProjectId));
 			setNewTaskEnv({});
+			setNewTaskClaudePermissionStrategy(null);
 			if (!options?.keepDialogOpen) {
 				setIsInlineTaskCreateOpen(false);
 			}
@@ -455,6 +470,7 @@ export function useTaskEditor({
 			newTaskClineSettings,
 			newTaskSkillNames,
 			newTaskEnv,
+			newTaskClaudePermissionStrategy,
 			newTaskImages,
 			newTaskPrompt,
 			newTaskStartInPlanMode,
@@ -577,6 +593,7 @@ export function useTaskEditor({
 		setNewTaskClineSettings(undefined);
 		setNewTaskSkillNames(readLastUsedSkillNames(currentProjectId));
 		setNewTaskEnv({});
+		setNewTaskClaudePermissionStrategy(null);
 	}, [currentProjectId]);
 
 	return {
@@ -604,6 +621,8 @@ export function useTaskEditor({
 		setNewTaskSkillNames,
 		newTaskEnv,
 		setNewTaskEnv,
+		newTaskClaudePermissionStrategy,
+		setNewTaskClaudePermissionStrategy,
 		editingTaskId,
 		editTaskPrompt,
 		setEditTaskPrompt,

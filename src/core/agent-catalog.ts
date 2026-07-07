@@ -31,6 +31,10 @@ export const RUNTIME_AGENT_CATALOG: RuntimeAgentCatalogEntry[] = [
 		label: "Claude Code",
 		binary: "claude",
 		baseArgs: [],
+		// Display default only (see buildDisplayedAgentCommand in runtime-settings-dialog.tsx,
+		// which swaps in ["--permission-mode", "auto"] when the resolved Claude permission
+		// strategy for the previewed scope is "auto"). Actual spawn-time args are decided by
+		// claudeAdapter in agent-session-adapters.ts based on the resolved strategy.
 		autonomousArgs: ["--dangerously-skip-permissions"],
 		installUrl: "https://docs.anthropic.com/en/docs/claude-code/quickstart",
 		modelFlag: "--model",

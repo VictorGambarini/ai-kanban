@@ -9,6 +9,7 @@ import { useEffect, useMemo, useRef } from "react";
 
 import { notifyError } from "@/components/app-toaster";
 import { resolveLaunchAgentEnv } from "@/runtime/agent-env-launch";
+import { resolveLaunchClaudePermissionStrategy } from "@/runtime/claude-permission-strategy-launch";
 import { getRuntimeClineProviderSettings, isNativeClineAgentSelected } from "@/runtime/native-agent";
 import { estimateTaskSessionGeometry } from "@/runtime/task-session-geometry";
 import { getRuntimeTrpcClient } from "@/runtime/trpc-client";
@@ -319,6 +320,10 @@ export function useHomeAgentSession({
 					projectId: session.workspaceId,
 					taskId: session.taskId,
 				});
+				const claudePermissionStrategy = await resolveLaunchClaudePermissionStrategy({
+					projectId: session.workspaceId,
+					taskId: session.taskId,
+				});
 				const response = await trpcClient.runtime.startTaskSession.mutate({
 					taskId: session.taskId,
 					prompt: "",
@@ -326,6 +331,7 @@ export function useHomeAgentSession({
 					cols: geometry.cols,
 					rows: geometry.rows,
 					env,
+					claudePermissionStrategy,
 				});
 
 				if (!response.ok || !response.summary) {

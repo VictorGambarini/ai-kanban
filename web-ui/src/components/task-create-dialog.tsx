@@ -2,6 +2,7 @@ import * as RadixCheckbox from "@radix-ui/react-checkbox";
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
 import * as RadixSwitch from "@radix-ui/react-switch";
 import type { AgentEnvMap } from "@runtime-agent-env";
+import type { ClaudePermissionStrategy } from "@runtime-claude-permission-strategy";
 import {
 	ArrowBigUp,
 	ArrowLeft,
@@ -22,6 +23,7 @@ import { useHotkeys } from "react-hotkeys-hook";
 import { TaskEnvDraftButton } from "@/components/agent-env/task-env-draft-button";
 import type { BranchSelectOption } from "@/components/branch-select-dropdown";
 import { BranchSelectDropdown } from "@/components/branch-select-dropdown";
+import { TaskClaudePermissionModeDraftButton } from "@/components/claude-permission/task-claude-permission-mode-draft-button";
 import { TaskAgentModelPicker, useTaskAgentModelPicker } from "@/components/task-agent-model-picker";
 import { TaskPromptComposer } from "@/components/task-prompt-composer";
 import { Button } from "@/components/ui/button";
@@ -129,6 +131,8 @@ export function TaskCreateDialog({
 	onSkillNamesChange,
 	env,
 	onEnvChange,
+	claudePermissionStrategy,
+	onClaudePermissionStrategyChange,
 	defaultAgentId,
 	defaultProviderId,
 	defaultModelId,
@@ -168,6 +172,9 @@ export function TaskCreateDialog({
 	/** Custom env collected for the new task; persisted once the task is created. */
 	env: AgentEnvMap;
 	onEnvChange: (value: AgentEnvMap) => void;
+	/** Claude Code permission mode override collected for the new task; persisted once the task is created. */
+	claudePermissionStrategy: ClaudePermissionStrategy | null;
+	onClaudePermissionStrategyChange: (value: ClaudePermissionStrategy | null) => void;
 	/** Default agent ID from runtimeConfig.selectedAgentId, used to show "Default (AgentName)" in picker */
 	defaultAgentId?: RuntimeAgentId | null;
 	/** Default Cline provider ID from runtimeConfig.clineProviderSettings.providerId */
@@ -625,6 +632,15 @@ export function TaskCreateDialog({
 						<div className="flex items-center justify-between gap-2">
 							<span className="text-[12px] text-text-secondary">Environment variables</span>
 							<TaskEnvDraftButton value={env} onChange={onEnvChange} />
+						</div>
+					) : null}
+					{mode === "single" && (agentId ?? defaultAgentId) === "claude" ? (
+						<div className="flex items-center justify-between gap-2">
+							<span className="text-[12px] text-text-secondary">Permission mode</span>
+							<TaskClaudePermissionModeDraftButton
+								value={claudePermissionStrategy}
+								onChange={onClaudePermissionStrategyChange}
+							/>
 						</div>
 					) : null}
 				</div>

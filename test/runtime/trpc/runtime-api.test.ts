@@ -1,8 +1,9 @@
-import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-
 import type { RuntimeConfigState } from "../../../src/config/runtime-config";
+import { saveClaudePermissionStrategyConfig } from "../../../src/config/runtime-config";
 import type { RuntimeTaskSessionSummary } from "../../../src/core/api-contract";
 
 const agentRegistryMocks = vi.hoisted(() => ({
@@ -464,6 +465,52 @@ describe("createRuntimeApi startTaskSession", () => {
 		expect(terminalManager.startTaskSession).toHaveBeenCalledWith(
 			expect.objectContaining({
 				cwd: "/tmp/existing-worktree",
+			}),
+		);
+	});
+
+	it("threads the resolved Claude permission strategy through to the terminal manager", async () => {
+		taskWorktreeMocks.resolveTaskCwd.mockResolvedValue("/tmp/existing-worktree");
+		agentRegistryMocks.resolveAgentCommand.mockReturnValue({
+			agentId: "claude",
+			label: "Claude Code",
+			command: "claude",
+			binary: "claude",
+			args: [],
+		});
+
+		const terminalManager = {
+			startTaskSession: vi.fn(async () => createSummary({ agentId: "claude" })),
+			applyTurnCheckpoint: vi.fn(),
+		};
+		const clineTaskSessionService = createClineTaskSessionServiceMock();
+		const api = createTestRuntimeApi({
+			getActiveWorkspaceId: vi.fn(() => "workspace-1"),
+			loadScopedRuntimeConfig: vi.fn(async () => createRuntimeConfigState()),
+			setActiveRuntimeConfig: vi.fn(),
+			getScopedTerminalManager: vi.fn(async () => terminalManager as never),
+			getScopedClineTaskSessionService: vi.fn(async () => clineTaskSessionService as never),
+			resolveInteractiveShellCommand: vi.fn(),
+			runCommand: vi.fn(),
+		});
+
+		const response = await api.startTaskSession(
+			{
+				workspaceId: "workspace-1",
+				workspacePath: "/tmp/repo",
+			},
+			{
+				taskId: "task-1",
+				baseRef: "main",
+				prompt: "Investigate startup freeze",
+				claudePermissionStrategy: "auto",
+			},
+		);
+
+		expect(response.ok).toBe(true);
+		expect(terminalManager.startTaskSession).toHaveBeenCalledWith(
+			expect.objectContaining({
+				claudePermissionStrategy: "auto",
 			}),
 		);
 	});
@@ -3147,7 +3194,42 @@ describe("createRuntimeApi restartTaskSessionEnv", () => {
 
 		expect(response.ok).toBe(true);
 		expect(restartTaskSessionWithEnv).toHaveBeenCalledTimes(1);
-		expect(restartTaskSessionWithEnv).toHaveBeenCalledWith("task-1", expect.any(Object));
+		expect(restartTaskSessionWithEnv).toHaveBeenCalledWith("task-1", expect.any(Object), expect.any(String));
+	});
+
+	it("resolves the saved Claude permission strategy for the workspace/task scope on restart", async () => {
+		const tempHome = mkdtempSync(join(tmpdir(), "kanban-restart-claude-strategy-"));
+		const originalHome = process.env.HOME;
+		process.env.HOME = tempHome;
+		try {
+			await saveClaudePermissionStrategyConfig({
+				global: "bypass",
+				projects: { "workspace-1": "auto" },
+				tasks: {},
+			});
+
+			const restartTaskSessionWithEnv = vi.fn(async () => createSummary({ agentId: "claude", state: "running" }));
+			const terminalManager = {
+				getSummary: vi.fn(() => createSummary({ agentId: "claude", state: "running" })),
+				restartTaskSessionWithEnv,
+			};
+			const api = createTestRuntimeApi(createDepsWithTerminal(terminalManager));
+
+			const response = await api.restartTaskSessionEnv(
+				{ workspaceId: "workspace-1", workspacePath: "/tmp/repo" },
+				{ taskId: "task-1" },
+			);
+
+			expect(response.ok).toBe(true);
+			expect(restartTaskSessionWithEnv).toHaveBeenCalledWith("task-1", expect.any(Object), "auto");
+		} finally {
+			if (originalHome === undefined) {
+				delete process.env.HOME;
+			} else {
+				process.env.HOME = originalHome;
+			}
+			rmSync(tempHome, { recursive: true, force: true });
+		}
 	});
 
 	it("refuses to restart an in-process Cline task", async () => {

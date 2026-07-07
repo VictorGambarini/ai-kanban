@@ -9,6 +9,7 @@ import type {
 	RuntimeTaskImage,
 	RuntimeTaskSessionSummary,
 } from "../core/api-contract";
+import { type ClaudePermissionStrategy, DEFAULT_CLAUDE_PERMISSION_STRATEGY } from "../core/claude-permission-strategy";
 import { buildKanbanCommandParts } from "../core/kanban-command";
 import { quoteShellArg } from "../core/shell";
 import { lockedFileSystem } from "../fs/locked-file-system";
@@ -33,6 +34,8 @@ export interface AgentAdapterLaunchInput {
 	/** Per-task model override passed to the agent CLI's model flag (for example `--model sonnet`). */
 	cliModel?: string;
 	autonomousModeEnabled?: boolean;
+	/** Claude Code only: whether autonomous launches use a hard bypass or the safer "auto" mode. */
+	claudePermissionStrategy?: ClaudePermissionStrategy;
 	cwd: string;
 	prompt: string;
 	images?: RuntimeTaskImage[];
@@ -612,12 +615,22 @@ const claudeAdapter: AgentSessionAdapter = {
 			FORCE_HYPERLINK: "1",
 		};
 		const appendedSystemPrompt = resolveHomeAgentAppendSystemPrompt(input.taskId);
+		const claudePermissionStrategy = input.claudePermissionStrategy ?? DEFAULT_CLAUDE_PERMISSION_STRATEGY;
+		if (input.autonomousModeEnabled && claudePermissionStrategy === "auto") {
+			// Auto mode is gated behind this env var on Bedrock/Vertex/Foundry; the Anthropic API ignores it.
+			env.CLAUDE_CODE_ENABLE_AUTO_MODE = "1";
+		}
 		if (
 			input.autonomousModeEnabled &&
 			!input.startInPlanMode &&
+			!hasCliOption(args, "--permission-mode") &&
 			!hasCliOption(args, "--dangerously-skip-permissions")
 		) {
-			args.push("--dangerously-skip-permissions");
+			if (claudePermissionStrategy === "auto") {
+				args.push("--permission-mode", "auto");
+			} else {
+				args.push("--dangerously-skip-permissions");
+			}
 		}
 		if (input.resumeFromTrash && !hasCliOption(args, "--continue")) {
 			args.push("--continue");
@@ -626,9 +639,6 @@ const claudeAdapter: AgentSessionAdapter = {
 			const withoutImmediateBypass = args.filter((arg) => arg !== "--dangerously-skip-permissions");
 			args.length = 0;
 			args.push(...withoutImmediateBypass);
-			if (!hasCliOption(args, "--allow-dangerously-skip-permissions")) {
-				args.push("--allow-dangerously-skip-permissions");
-			}
 			args.push("--permission-mode", "plan");
 		}
 

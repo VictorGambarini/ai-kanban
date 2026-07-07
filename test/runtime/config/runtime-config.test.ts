@@ -5,10 +5,12 @@ import { describe, expect, it } from "vitest";
 
 import {
 	loadAgentEnvConfig,
+	loadClaudePermissionStrategyConfig,
 	loadGlobalRuntimeConfig,
 	loadRuntimeConfig,
 	pickBestInstalledAgentIdFromDetected,
 	saveAgentEnvConfig,
+	saveClaudePermissionStrategyConfig,
 	saveRuntimeConfig,
 	updateRuntimeConfig,
 } from "../../../src/config/runtime-config";
@@ -551,6 +553,50 @@ describe.sequential("runtime-config agent env", () => {
 				expect(cleared).toEqual({ global: {}, projects: {}, tasks: {} });
 				const rawAfterClear = JSON.parse(readFileSync(configPath, "utf8")) as { agentEnv?: unknown };
 				expect(rawAfterClear.agentEnv).toBeUndefined();
+			});
+		} finally {
+			cleanupProject();
+			cleanupHome();
+		}
+	});
+});
+
+describe.sequential("runtime-config claude permission strategy", () => {
+	it("persists, reloads, and preserves the strategy config across unrelated writes", async () => {
+		if (process.platform === "win32") {
+			return;
+		}
+		const { path: tempHome, cleanup: cleanupHome } = createTempDir("kanban-home-claude-permission-");
+		const { path: tempProject, cleanup: cleanupProject } = createTempDir("kanban-project-claude-permission-");
+		try {
+			await withTemporaryEnv({ home: tempHome }, async () => {
+				const saved = await saveClaudePermissionStrategyConfig({
+					global: "auto",
+					projects: { "proj-a": "bypass" },
+					tasks: { "task-1": "auto" },
+				});
+				expect(saved).toEqual({
+					global: "auto",
+					projects: { "proj-a": "bypass" },
+					tasks: { "task-1": "auto" },
+				});
+
+				const reloaded = await loadClaudePermissionStrategyConfig();
+				expect(reloaded).toEqual(saved);
+
+				// An unrelated config write must not drop the strategy config.
+				await updateRuntimeConfig(tempProject, { agentAutonomousModeEnabled: false });
+				const afterUnrelatedWrite = await loadClaudePermissionStrategyConfig();
+				expect(afterUnrelatedWrite).toEqual(saved);
+
+				// Saving an empty config removes the key entirely.
+				const cleared = await saveClaudePermissionStrategyConfig({ global: null, projects: {}, tasks: {} });
+				expect(cleared).toEqual({ global: null, projects: {}, tasks: {} });
+				const configPath = join(tempHome, ".cline", "kanban", "config.json");
+				const rawAfterClear = JSON.parse(readFileSync(configPath, "utf8")) as {
+					claudePermissionStrategy?: unknown;
+				};
+				expect(rawAfterClear.claudePermissionStrategy).toBeUndefined();
 			});
 		} finally {
 			cleanupProject();

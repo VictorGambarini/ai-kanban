@@ -7,6 +7,8 @@ import { z } from "zod";
 import type {
 	RuntimeAgentEnvConfigResponse,
 	RuntimeAgentEnvSaveRequest,
+	RuntimeClaudePermissionStrategyConfigResponse,
+	RuntimeClaudePermissionStrategySaveRequest,
 	RuntimeClaudeStatuslineConfig,
 	RuntimeClaudeStatuslineSaveRequest,
 	RuntimeClineAccountBalanceResponse,
@@ -108,6 +110,8 @@ import type {
 import {
 	runtimeAgentEnvConfigResponseSchema,
 	runtimeAgentEnvSaveRequestSchema,
+	runtimeClaudePermissionStrategyConfigResponseSchema,
+	runtimeClaudePermissionStrategySaveRequestSchema,
 	runtimeClaudeStatuslineConfigSchema,
 	runtimeClaudeStatuslineSaveRequestSchema,
 	runtimeClineAccountBalanceResponseSchema,
@@ -235,6 +239,11 @@ export interface RuntimeTrpcContext {
 			scope: RuntimeTrpcWorkspaceScope | null,
 			input: RuntimeAgentEnvSaveRequest,
 		) => Promise<RuntimeAgentEnvConfigResponse>;
+		getClaudePermissionStrategy: () => Promise<RuntimeClaudePermissionStrategyConfigResponse>;
+		saveClaudePermissionStrategy: (
+			scope: RuntimeTrpcWorkspaceScope | null,
+			input: RuntimeClaudePermissionStrategySaveRequest,
+		) => Promise<RuntimeClaudePermissionStrategyConfigResponse>;
 		saveClineProviderSettings: (
 			scope: RuntimeTrpcWorkspaceScope | null,
 			input: RuntimeClineProviderSettingsSaveRequest,
@@ -518,6 +527,19 @@ export const runtimeAppRouter = t.router({
 			.output(runtimeAgentEnvConfigResponseSchema)
 			.mutation(async ({ ctx, input }) => {
 				return await ctx.runtimeApi.saveAgentEnv(ctx.workspaceScope, input);
+			}),
+		// Hub-central Claude Code permission strategy (bypass vs. auto mode). Same
+		// hub-scoped client pattern as getAgentEnv/saveAgentEnv above.
+		getClaudePermissionStrategy: t.procedure
+			.output(runtimeClaudePermissionStrategyConfigResponseSchema)
+			.query(async ({ ctx }) => {
+				return await ctx.runtimeApi.getClaudePermissionStrategy();
+			}),
+		saveClaudePermissionStrategy: t.procedure
+			.input(runtimeClaudePermissionStrategySaveRequestSchema)
+			.output(runtimeClaudePermissionStrategyConfigResponseSchema)
+			.mutation(async ({ ctx, input }) => {
+				return await ctx.runtimeApi.saveClaudePermissionStrategy(ctx.workspaceScope, input);
 			}),
 		saveClineProviderSettings: t.procedure
 			.input(runtimeClineProviderSettingsSaveRequestSchema)

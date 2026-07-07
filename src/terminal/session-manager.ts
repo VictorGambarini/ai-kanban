@@ -97,6 +97,8 @@ export interface StartTaskSessionRequest {
 	args: string[];
 	cliModel?: string;
 	autonomousModeEnabled?: boolean;
+	/** Claude Code only: whether autonomous launches use a hard bypass or the safer "auto" mode. */
+	claudePermissionStrategy?: AgentAdapterLaunchInput["claudePermissionStrategy"];
 	cwd: string;
 	prompt: string;
 	images?: RuntimeTaskImage[];
@@ -387,6 +389,7 @@ export class TerminalSessionManager implements TerminalSessionService {
 			args: request.args,
 			cliModel: request.cliModel,
 			autonomousModeEnabled: request.autonomousModeEnabled,
+			claudePermissionStrategy: request.claudePermissionStrategy,
 			cwd: request.cwd,
 			prompt: request.prompt,
 			images: request.images,
@@ -1018,6 +1021,7 @@ export class TerminalSessionManager implements TerminalSessionService {
 	async restartTaskSessionWithEnv(
 		taskId: string,
 		env: Record<string, string | undefined> | undefined,
+		claudePermissionStrategy?: StartTaskSessionRequest["claudePermissionStrategy"],
 	): Promise<RuntimeTaskSessionSummary | null> {
 		const entry = this.entries.get(taskId);
 		if (!entry || entry.restartRequest?.kind !== "task") {
@@ -1026,7 +1030,7 @@ export class TerminalSessionManager implements TerminalSessionService {
 		const nextEnv = env && Object.keys(env).length > 0 ? { ...env } : undefined;
 		entry.restartRequest = {
 			kind: "task",
-			request: { ...entry.restartRequest.request, env: nextEnv },
+			request: { ...entry.restartRequest.request, env: nextEnv, claudePermissionStrategy },
 		};
 		if (!entry.active) {
 			// Not running: spawn fresh with the new env directly.

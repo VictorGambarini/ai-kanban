@@ -8,6 +8,7 @@ import { dismissAppToast, notifyError, showAppToast } from "@/components/app-toa
 import { selectNewestTaskSessionSummary } from "@/hooks/home-sidebar-agent-panel-session-summary";
 import { type ClineChatActionResult, useClineChatRuntimeActions } from "@/hooks/use-cline-chat-runtime-actions";
 import { resolveLaunchAgentEnv } from "@/runtime/agent-env-launch";
+import { resolveLaunchClaudePermissionStrategy } from "@/runtime/claude-permission-strategy-launch";
 import { estimateTaskSessionGeometry } from "@/runtime/task-session-geometry";
 import { getRuntimeTrpcClient } from "@/runtime/trpc-client";
 import type {
@@ -180,6 +181,10 @@ export function useTaskSessions({ currentProjectId, setSessions }: UseTaskSessio
 				const geometry =
 					getTerminalGeometry(task.id) ?? estimateTaskSessionGeometry(window.innerWidth, window.innerHeight);
 				const env = await resolveLaunchAgentEnv({ projectId: currentProjectId, taskId: task.id });
+				const claudePermissionStrategy = await resolveLaunchClaudePermissionStrategy({
+					projectId: currentProjectId,
+					taskId: task.id,
+				});
 				const payload = await trpcClient.runtime.startTaskSession.mutate({
 					taskId: task.id,
 					prompt: kickoffPrompt,
@@ -195,6 +200,7 @@ export function useTaskSessions({ currentProjectId, setSessions }: UseTaskSessio
 					clineSettings: task.clineSettings,
 					skillNames: task.skillNames,
 					env,
+					claudePermissionStrategy,
 				});
 				if (!payload.ok || !payload.summary) {
 					return {
