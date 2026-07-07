@@ -3,7 +3,6 @@ import type { ReactElement, ReactNode } from "react";
 
 import { Button } from "@/components/ui/button";
 import { cn } from "@/components/ui/cn";
-import { MOBILE_TOUCH_TARGET } from "@/components/ui/touch-target";
 import { getTerminalController } from "@/terminal/terminal-controller-registry";
 
 interface TerminalKey {
@@ -23,7 +22,7 @@ const KEYS: TerminalKey[] = [
 	{ id: "right", label: <ArrowRight size={ICON_SIZE} />, ariaLabel: "Right arrow", sequence: "\x1b[C" },
 	{ id: "esc", label: "Esc", ariaLabel: "Escape", sequence: "\x1b" },
 	{ id: "tab", label: "Tab", ariaLabel: "Tab", sequence: "\t" },
-	{ id: "ctrl-c", label: "Ctrl+C", ariaLabel: "Control C", sequence: "\x03" },
+	{ id: "ctrl-c", label: "^C", ariaLabel: "Control C", sequence: "\x03" },
 	{ id: "enter", label: "Enter", ariaLabel: "Enter", sequence: "\r" },
 ];
 
@@ -48,7 +47,13 @@ export function TerminalKeyBar({ taskId }: TerminalKeyBarProps): ReactElement {
 					key={key.id}
 					variant="default"
 					size="sm"
-					className={cn("shrink-0", MOBILE_TOUCH_TARGET)}
+					// Small screens: buttons flex to share the full width evenly and
+					// shrink onto one row (no horizontal scroll). sm+ keeps the natural
+					// compact, left-aligned 44px touch targets.
+					className={cn(
+						"min-h-[44px] flex-1 basis-0 min-w-0 px-1",
+						"sm:flex-none sm:min-w-[44px] sm:px-2",
+					)}
 					aria-label={key.ariaLabel}
 					onClick={() => sendKey(key.sequence)}
 				>
